@@ -14,7 +14,7 @@ namespace WinFormsApp1
 
         private void button1_Click(object sender, EventArgs e)
         {
-            textBox1.Text = MacroTest(this.Handle, "C:\\Users\\T00235\\source\\repos\\DLL\\ASAudioDLL\\ASAudioDLL\\switchAudio.ini");
+            textBox1.Text = MacroTest(this.Handle, "C:\\Users\\T00235\\source\\repos\\DLL\\ASAudioDLL\\ASAudioDLL\\audio.ini");
         }
     }
 }

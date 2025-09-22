@@ -5,32 +5,14 @@
 #define ASAudio_API extern "C" __declspec(dllimport)
 #endif
 
-#include <iostream>
 #include <windows.h>
-#include <mmsystem.h>
+#include <string>
 #include <vector>
-#include <condition_variable>
 #include <mutex>
-#include <cmath>
-#include <fstream>
-#include <algorithm> // 為了 std::max
+#include <condition_variable>
 #include "fftw3.h"
 #include "portaudio.h"
 #include "ConstantString.h"
-#include <thread>  // 包含這個頭文件來使用 std::thread
-#include <chrono>  // 包含這個頭文件來使用 std::chrono::seconds
-#include <unordered_map>
-#include <mmdeviceapi.h>
-#include <endpointvolume.h>
-#include <dshow.h>
-#include <sstream>
-#include <propkey.h>
-#include <functiondiscoverykeys.h> 
-#include <atlbase.h> // for CComPtr
-#include <initguid.h>  // 一定要加這個，才會定義 GUID 內容
-#include <comdef.h> // for _bstr_t
-#include <locale>
-#include <codecvt>
 
 
 
@@ -38,22 +20,11 @@
 #pragma comment(lib,"winmm.lib")
 #pragma warning(disable:4244)
 
-extern "C" _declspec(dllexport)  void __cdecl fft_set_test_parm(
-		const char* szOutDevName, int WaveOutVolume
-		, const char* szInDevName, int WaveInVolume
-		, int frequencyL, int frequencyR
-		, int WaveOutdelay);
-extern "C" _declspec(dllexport)  void __cdecl fft_set_audio_volume(
-	const char* szOutDevName, int WaveOutVolume
-	, const char* szInDevName, int WaveInVolume);
-extern "C" _declspec(dllexport)  void __cdecl fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq);
-extern "C" _declspec(dllexport)  void __cdecl fft_set_system_sound_mute(bool Mute);
-extern "C" _declspec(dllexport)  int __cdecl fft_thd_n_exe(short* leftAudioData, short* rightAudioData,double* leftSpectrumData, double* rightSpectrumData);
-extern "C" _declspec(dllexport)  void __cdecl fft_get_mute_db(double* dB_ValueMax);
-extern "C" _declspec(dllexport)  int __cdecl fft_mute_exe(bool MuteWaveOut,bool MuteWaveIn,short* leftAudioData, short* rightAudioData, double* leftSpectrumData, double* rightSpectrumData);
-extern "C" _declspec(dllexport)  void __cdecl fft_get_snr(double* snr);
-extern "C" _declspec(dllexport)  int __cdecl fft_get_buffer_size();
-extern "C" _declspec(dllexport)  BSTR __cdecl fft_get_error_msg(int error_code);
+void fft_set_test_parm(const char* szOutDevName, int WaveOutVolume, const char* szInDevName, int WaveInVolume, int frequencyL, int frequencyR, int WaveOutdelay);
+void fft_set_audio_volume(const char* szOutDevName, int WaveOutVolume, const char* szInDevName, int WaveInVolume);
+void fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq);
+void fft_set_system_sound_mute(bool Mute);
+int fft_thd_n_exe(short* leftAudioData, short* rightAudioData, double* leftSpectrumData, double* rightSpectrumData);
 
 extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd,const char* filePath);
 
@@ -152,8 +123,10 @@ typedef struct _WAVE_PARM
 class ASAudio
 {
 public:
-	ASAudio(SpectrumAnalysisCallback callback);
 	~ASAudio();
+	static ASAudio& GetInstance();
+	ASAudio(const ASAudio&) = delete;
+	ASAudio& operator=(const ASAudio&) = delete;
 
 	MMRESULT StartRecordingAndDrawSpectrum();
 	MMRESULT StopRecording();
@@ -187,6 +160,7 @@ public:
 	static bool SetDefaultAudioPlaybackDevice(const std::wstring& deviceId);
 private:
 
+	ASAudio(SpectrumAnalysisCallback callback);
 	fftw_complex* fftInputBufferLeft;
 	fftw_complex* fftInputBufferRight;
 	fftw_complex* fftOutputBufferLeft;
@@ -208,4 +182,3 @@ private:
 		void* userData);
 
 };
-extern ASAudio g_asAudio; 

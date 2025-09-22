@@ -1,7 +1,21 @@
 #include "ASAudioDLL.h"
-#include <sstream> // for std::stringstream
-#include <string>  // for std::wstring
-#include <windows.h> // for MessageBoxW
+#include <sstream>
+#include <fstream>
+#include <algorithm>
+#include <thread>
+#include <chrono>
+#include <locale>
+#include <codecvt>
+
+#include <mmsystem.h>
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
+#include <dshow.h>
+#include <propkey.h>
+#include <functiondiscoverykeys.h>
+#include <atlbase.h> // for CComPtr
+#include <initguid.h>
+#include <comdef.h> // for _bstr_t
 
 // Global Variables
 WAVE_PARM mWAVE_PARM;
@@ -9,7 +23,7 @@ WAVEHDR waveHdr; // WAVEHDR結構，用於錄音緩衝
 HWAVEIN hWaveIn; // 音訊輸入設備的處理
 HWAVEOUT hWaveOut; // 音訊輸出設備的處理
 WAVEHDR WaveOutHeader;
-char* WaveOutData;
+std::vector<char> WaveOutData;
 
 paTestData data = { 0 };
 
@@ -37,168 +51,143 @@ std::wstring Utf8ToWstring(const std::string& str);
 
 extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* filePath)
 {
-	bool shouldRetry = true;
-	while (shouldRetry)
-	{
-		shouldRetry = false; // 預設不重試，除非使用者選擇
+	bool shouldRetry, hasError;
+	do {
+		shouldRetry = false; // 預設不重試
 		strMacroResult.clear(); // 每次重試前清除結果
 		allContent.clear();
+		hasError = false;
 
-		int timeout;
 		Config configs;
-		if (!ASAudio::ReadConfig(filePath, configs))
-		{
-			goto fail_handler;
+		if (!ASAudio::ReadConfig(filePath, configs)) {
+			hasError = true;
 		}
 
 		// --- Check WaveOut Device ---
-		if (mWAVE_PARM.WaveOutDev != L"")
-		{
-			timeout = GetTickCount64() + 5000;
-			while (ASAudio::GetWaveOutDevice(mWAVE_PARM.WaveOutDev.c_str()) == -1)
-			{
-				if (GetTickCount64() > timeout)
-				{
+		if (!hasError && mWAVE_PARM.WaveOutDev != L"") {
+			ULONGLONG timeout = GetTickCount64() + 5000;
+			while (ASAudio::GetWaveOutDevice(mWAVE_PARM.WaveOutDev.c_str()) == -1) {
+				if (GetTickCount64() > timeout) {
 					strMacroResult = "LOG:ERROR_AUDIO_WAVEOUT_DEVICE_NOT_FIND#";
-					goto fail_handler;
+					hasError = true;
+					break;
 				}
-				Sleep(100); // 避免 CPU 空轉
+				Sleep(100);
 			}
-			g_asAudio.SetSpeakerSystemVolume();
+			if (!hasError) {
+				ASAudio::GetInstance().SetSpeakerSystemVolume();
+			}
 		}
 
 		// --- Check WaveIn Device ---
-		if (mWAVE_PARM.WaveInDev != L"")
-		{
-			timeout = GetTickCount64() + 5000;
-			while (ASAudio::GetWaveInDevice(mWAVE_PARM.WaveInDev.c_str()) == -1)
-			{
-				if (GetTickCount64() > timeout)
-				{
+		if (!hasError && mWAVE_PARM.WaveInDev != L"") {
+			ULONGLONG timeout = GetTickCount64() + 5000;
+			while (ASAudio::GetWaveInDevice(mWAVE_PARM.WaveInDev.c_str()) == -1) {
+				if (GetTickCount64() > timeout) {
 					strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
-					goto fail_handler;
+					hasError = true;
+					break;
 				}
-				Sleep(100); // 避免 CPU 空轉
+				Sleep(100);
 			}
-			g_asAudio.SetMicSystemVolume();
+			if (!hasError) {
+				ASAudio::GetInstance().SetMicSystemVolume();
+			}
 		}
 
 		// --- Audio Test Logic ---
-		if (configs.AudioTestEnable)
-		{
-			memset(leftAudioData, 0, BUFFER_SIZE * sizeof(short));
-			memset(rightAudioData, 0, BUFFER_SIZE * sizeof(short));
-			memset(leftSpectrumData, 0, BUFFER_SIZE * sizeof(double));
-			memset(rightSpectrumData, 0, BUFFER_SIZE * sizeof(double));
-			memset(thd_n, 0, 2 * sizeof(double));
-			memset(dB_ValueMax, 0, 2 * sizeof(double));
-			memset(freq, 0, 2 * sizeof(double));
+		if (!hasError && configs.AudioTestEnable) {
+			memset(leftAudioData, 0, sizeof(leftAudioData));
+			memset(rightAudioData, 0, sizeof(rightAudioData));
+			memset(leftSpectrumData, 0, sizeof(leftSpectrumData));
+			memset(rightSpectrumData, 0, sizeof(rightSpectrumData));
+			memset(thd_n, 0, sizeof(thd_n));
+			memset(dB_ValueMax, 0, sizeof(dB_ValueMax));
+			memset(freq, 0, sizeof(freq));
 
 			fft_thd_n_exe(leftAudioData, rightAudioData, leftSpectrumData, rightSpectrumData);
 			fft_get_thd_n_db(thd_n, dB_ValueMax, freq);
 
-			if (thd_n[0] > configs.thd_n || thd_n[1] > configs.thd_n)
-			{
+			if (thd_n[0] > configs.thd_n || thd_n[1] > configs.thd_n) {
 				std::stringstream ss;
 				ss << "LOG:ERROR_AUDIO_THD_N_VALUE_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1] << "#";
 				strMacroResult = ss.str();
-				goto fail_handler;
+				hasError = true;
 			}
-
-			if (dB_ValueMax[0] < configs.db_ValueMax || dB_ValueMax[1] < configs.db_ValueMax)
-			{
+			else if (dB_ValueMax[0] < configs.db_ValueMax || dB_ValueMax[1] < configs.db_ValueMax) {
 				std::stringstream ss;
 				ss << "LOG:ERROR_AUDIO_DB_MAX_VALUE_" << "L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1] << "#";
 				strMacroResult = ss.str();
-				goto fail_handler;
+				hasError = true;
 			}
-
-			if (freq[0] != configs.frequencyL || freq[1] != configs.frequencyR)
-			{
+			else if (freq[0] != configs.frequencyL || freq[1] != configs.frequencyR) {
 				std::stringstream ss;
 				ss << "LOG:ERROR_AUDIO_FREQUENCY_" << "L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
 				strMacroResult = ss.str();
-				goto fail_handler;
+				hasError = true;
 			}
-
-			// 如果 Audio Test 成功，組合成功訊息
-			std::stringstream ss;
-			ss << "LOG:SUCCESS_AUDIO_TEST_THD_N_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1]
-				<< "_dB_ValueMax_L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1]
-				<< "_Frequency_L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
-			strMacroResult = ss.str();
+			else {
+				std::stringstream ss;
+				ss << "LOG:SUCCESS_AUDIO_TEST_THD_N_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1]
+					<< "_dB_ValueMax_L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1]
+					<< "_Frequency_L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
+				strMacroResult = ss.str();
+			}
 		}
 
 		// --- Play WAV File ---
-		if (configs.PlayWAVFileEnable)
-		{
-			if (!ASAudio::PlayWavFile(configs.AutoCloseWAVFile))
-			{
-				goto fail_handler; // PlayWavFile 內部會設定 strMacroResult
+		if (!hasError && configs.PlayWAVFileEnable) {
+			if (!ASAudio::PlayWavFile(configs.AutoCloseWAVFile)) {
+				hasError = true; // PlayWavFile 內部會設定 strMacroResult
 			}
 		}
 
-		if (configs.CloseWAVFileEnable)
-		{
+		// --- Close WAV File ---
+		if (!hasError && configs.CloseWAVFileEnable) {
 			ASAudio::StopPlayingWavFile();
 		}
 
 		// --- Audio Loopback ---
-		if (configs.AudioLoopBackEnable)
-		{
-			if (configs.AudioLoopBackStart)
-			{
+		if (!hasError && configs.AudioLoopBackEnable) {
+			if (configs.AudioLoopBackStart) {
 				ShellExecute(0, L"open", L"control mmsys.cpl,,1", 0, 0, SW_SHOWNORMAL);
-				if (!ASAudio::StartAudioLoopback(mWAVE_PARM.WaveInDev.c_str(), mWAVE_PARM.WaveOutDev.c_str()))
-				{
-					goto fail_handler; // StartAudioLoopback 內部會設定 strMacroResult
+				if (!ASAudio::StartAudioLoopback(mWAVE_PARM.WaveInDev.c_str(), mWAVE_PARM.WaveOutDev.c_str())) {
+					hasError = true; // StartAudioLoopback 內部會設定 strMacroResult
 				}
 			}
-			else
-			{
+			else {
 				ASAudio::StopAudioLoopback();
 			}
 		}
 
 		// --- Switch Default Audio Device ---
-		if (configs.SwitchDefaultAudioEnable)
-		{
+		if (!hasError && configs.SwitchDefaultAudioEnable) {
 			std::wstring deviceId;
-			if (ASAudio::FindDeviceIdByName(configs, deviceId))
-			{
-				if (!ASAudio::SetDefaultAudioPlaybackDevice(deviceId))
-				{
+			if (ASAudio::FindDeviceIdByName(configs, deviceId)) {
+				if (!ASAudio::SetDefaultAudioPlaybackDevice(deviceId)) {
 					strMacroResult = "LOG:ERROR_AUDIO_CHANGE_DEFAULT_DEVICE#";
-					goto fail_handler;
+					hasError = true;
 				}
 			}
-			else
-			{
-				// FindDeviceIdByName 內部會設定 strMacroResult
-				goto fail_handler;
+			else { // FindDeviceIdByName 內部會設定 strMacroResult
+				hasError = true;
 			}
 		}
 
-		// 如果所有操作都成功，跳到迴圈結尾
-		goto end_loop;
-
-	fail_handler:
-		{
-			if(ownerHwnd == NULL) // 如果 ownerHwnd 為 NULL，表示是自動執行的測試，不顯示錯誤訊息
-				goto end_loop;
-			std::string strTemp = "Failed: " + strMacroResult;
-			std::wstring wErrorMsg = g_asAudio.charToWstring(strTemp.c_str())+ L"\n\n" + allContent + L"\n\n是否要重測？(Retry ?)";
-			if (MessageBoxW(ownerHwnd, wErrorMsg.c_str(), L"測試失敗", MB_YESNO | MB_ICONERROR) == IDYES)
-			{
-				shouldRetry = true; // 設定旗標以重新執行 while 迴圈
+		// 如果有任何測試失敗，且是在互動模式下，則跳出提示
+		if (hasError) {
+			if (ownerHwnd != NULL) { // 如果 ownerHwnd 不為 NULL，才顯示錯誤訊息
+				std::string strTemp = "Failed: " + strMacroResult;
+				std::wstring wErrorMsg = ASAudio::GetInstance().charToWstring(strTemp.c_str()) + L"\n\n" + allContent + L"\n\n是否要重測？(Retry ?)";
+				if (MessageBoxW(ownerHwnd, wErrorMsg.c_str(), L"測試失敗", MB_YESNO | MB_ICONERROR) == IDYES) {
+					shouldRetry = true; // 設定旗標以重新執行
+				}
 			}
 		}
-	} // end of while(shouldRetry)
+	} while (shouldRetry);
 
-end_loop:
 	// 如果 strMacroResult 為空 (例如所有功能都 disable)，給一個預設成功訊息
-	if (strMacroResult.empty())
-	{
+	if (strMacroResult.empty() || !hasError) {
 		strMacroResult = "LOG:PASS#";
 	}
 
@@ -279,7 +268,7 @@ bool ASAudio::ReadConfig(const std::string& filePath, Config& config)
 		, config.frequencyL
 		, config.frequencyR
 		, config.waveOutDelay);
-	mWAVE_PARM.AudioFile = g_asAudio.charToWstring(config.WAVFilePath.c_str());
+	mWAVE_PARM.AudioFile = ASAudio::GetInstance().charToWstring(config.WAVFilePath.c_str());
 
 	iNumber = GetPrivateProfileIntA("SwitchDefaultAudio", "SwitchDefaultAudioEnable", 0, filePath.c_str());
 	config.SwitchDefaultAudioEnable = iNumber == 1 ? true : false;
@@ -292,7 +281,7 @@ bool ASAudio::ReadConfig(const std::string& filePath, Config& config)
 		GetPrivateProfileStringA("SwitchDefaultAudio", temp.c_str(), "", buffer, sizeof(buffer), filePath.c_str());
 		if (strlen(buffer) == 0)
 			break;
-		config.monitorNames.push_back(g_asAudio.charToWstring(buffer));
+		config.monitorNames.push_back(ASAudio::GetInstance().charToWstring(buffer));
 	}
 	GetPrivateProfileStringA("SwitchDefaultAudio", "AudioName", "", buffer, sizeof(buffer), filePath.c_str());
 	config.AudioName = buffer;
@@ -302,14 +291,14 @@ bool ASAudio::ReadConfig(const std::string& filePath, Config& config)
 	return true;
 }
 
-extern "C" _declspec(dllexport) void __cdecl fft_set_test_parm(
+void __cdecl fft_set_test_parm(
 	const char* szOutDevName, int WaveOutVolumeValue
 	, const char* szInDevName, int WaveInVolumeValue
 	, int frequencyL, int frequencyR
 	, int WaveOutdelay)
 {
-	mWAVE_PARM.WaveOutDev = g_asAudio.charToWstring(szOutDevName);
-	mWAVE_PARM.WaveInDev = g_asAudio.charToWstring(szInDevName);
+	mWAVE_PARM.WaveOutDev = ASAudio::GetInstance().charToWstring(szOutDevName);
+	mWAVE_PARM.WaveInDev = ASAudio::GetInstance().charToWstring(szInDevName);
 	mWAVE_PARM.WaveOutVolume = WaveOutVolumeValue;
 	mWAVE_PARM.WaveInVolume = WaveInVolumeValue;
 	mWAVE_PARM.frequencyL = frequencyL;
@@ -317,23 +306,23 @@ extern "C" _declspec(dllexport) void __cdecl fft_set_test_parm(
 	mWAVE_PARM.WaveOutDelay = WaveOutdelay;
 }
 
-extern "C" _declspec(dllexport) int __cdecl fft_get_buffer_size()
+int __cdecl fft_get_buffer_size()
 {
 	return BUFFER_SIZE;
 }
 
-extern "C" _declspec(dllexport) void __cdecl fft_set_audio_volume(const char* szOutDevName, int WaveOutVolumeValue
+void __cdecl fft_set_audio_volume(const char* szOutDevName, int WaveOutVolumeValue
 	, const char* szInDevName, int WaveInVolumeValue)
 {
-	mWAVE_PARM.WaveOutDev = g_asAudio.charToWstring(szOutDevName);
-	mWAVE_PARM.WaveInDev = g_asAudio.charToWstring(szInDevName);
+	mWAVE_PARM.WaveOutDev = ASAudio::GetInstance().charToWstring(szOutDevName);
+	mWAVE_PARM.WaveInDev = ASAudio::GetInstance().charToWstring(szInDevName);
 	mWAVE_PARM.WaveOutVolume = WaveOutVolumeValue;
 	mWAVE_PARM.WaveInVolume = WaveInVolumeValue;
-	g_asAudio.SetMicSystemVolume();
-	g_asAudio.SetSpeakerSystemVolume();
+	ASAudio::GetInstance().SetMicSystemVolume();
+	ASAudio::GetInstance().SetSpeakerSystemVolume();
 }
 
-extern "C" _declspec(dllexport) BSTR __cdecl fft_get_error_msg(int error_code)
+BSTR __cdecl fft_get_error_msg(int error_code)
 {
 	ErrorCode code = static_cast<ErrorCode>(error_code);
 	auto it = error_map.find(code);
@@ -345,13 +334,13 @@ extern "C" _declspec(dllexport) BSTR __cdecl fft_get_error_msg(int error_code)
 	}
 }
 
-extern "C" _declspec(dllexport) void __cdecl fft_set_system_sound_mute(bool Mute)
+void __cdecl fft_set_system_sound_mute(bool Mute)
 { // 系統參數設置，SPIF_SENDCHANGE 表示立即更改，SPIF_UPDATEINIFILE 表示更新配置文件，第二個參數1、0切換windosw預設、無音效
 	int flag = Mute ? 0 : 1;
 	SystemParametersInfo(SPI_SETSOUNDSENTRY, flag, NULL, SPIF_SENDCHANGE | SPIF_UPDATEINIFILE);
 }
 
-extern "C" _declspec(dllexport) void __cdecl fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq)
+void __cdecl fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq)
 {
 	thd_n[0] = mWAVE_PARM.leftWAVE_ANALYSIS.thd_N_dB;
 	thd_n[1] = mWAVE_PARM.rightWAVE_ANALYSIS.thd_N_dB;
@@ -383,7 +372,7 @@ extern "C" _declspec(dllexport) void __cdecl fft_get_thd_n_db(double* thd_n, dou
 	*/
 }
 
-extern "C" _declspec(dllexport) void __cdecl fft_get_mute_db(double* dB_ValueMax)
+void __cdecl fft_get_mute_db(double* dB_ValueMax)
 {
 	dB_ValueMax[0] = 10 * log10(mWAVE_PARM.leftMuteWAVE_ANALYSIS.TotalEnergy);
 	dB_ValueMax[1] = 10 * log10(mWAVE_PARM.rightMuteWAVE_ANALYSIS.TotalEnergy);
@@ -400,7 +389,7 @@ extern "C" _declspec(dllexport) void __cdecl fft_get_mute_db(double* dB_ValueMax
 	*/
 }
 
-extern "C" _declspec(dllexport) void __cdecl fft_get_snr(double* snr)
+void __cdecl fft_get_snr(double* snr)
 {
 	// 計算SNR
 	snr[0] = (mWAVE_PARM.leftMuteWAVE_ANALYSIS.TotalEnergy > 0) ? (mWAVE_PARM.leftWAVE_ANALYSIS.fundamentalEnergy / mWAVE_PARM.leftMuteWAVE_ANALYSIS.TotalEnergy) : 0;
@@ -432,34 +421,34 @@ extern "C" _declspec(dllexport) void __cdecl fft_get_snr(double* snr)
 }
 
 // 外部C函數，用於執行FFT轉換
-extern "C" _declspec(dllexport) int __cdecl fft_thd_n_exe(short* leftAudioData, short* rightAudioData, double* leftSpectrumData, double* rightSpectrumData)
+int __cdecl fft_thd_n_exe(short* leftAudioData, short* rightAudioData, double* leftSpectrumData, double* rightSpectrumData)
 {
 	mWAVE_PARM.bMuteTest = false;
 	MMRESULT result;
 
-	result = g_asAudio.SetMicSystemVolume();
-	result = g_asAudio.SetSpeakerSystemVolume();
+	result = ASAudio::GetInstance().SetMicSystemVolume();
+	result = ASAudio::GetInstance().SetSpeakerSystemVolume();
 	if (result != MMSYSERR_NOERROR)
 		return result;
 
-	result = g_asAudio.StartRecordingAndDrawSpectrum();
+	result = ASAudio::GetInstance().StartRecordingAndDrawSpectrum();
 	if (result != MMSYSERR_NOERROR)
 		return result;
 
 	std::unique_lock<std::mutex> lock(mWAVE_PARM.recordingMutex);
 	// 等待直到錄音完成
 	//while簡寫 當isRecordingFinished == true 跳出
-	mWAVE_PARM.recordingFinishedCV.wait(lock, [] { return mWAVE_PARM.isRecordingFinished; });
+	mWAVE_PARM.recordingFinishedCV.wait(lock, [] { return mWAVE_PARM.isRecordingFinished;  });
 	mWAVE_PARM.isRecordingFinished = false;
 
-	g_asAudio.StopRecording(); // 停止錄音
-	g_asAudio.stopPlayback(); // 停止播放檔
+	ASAudio::GetInstance().StopRecording(); // 停止錄音
+	ASAudio::GetInstance().stopPlayback(); // 停止播放檔
 
 	// 確保 FFTW 結果指標被分配
 	fftw_complex* leftSpectrum = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * BUFFER_SIZE);
 	fftw_complex* rightSpectrum = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * BUFFER_SIZE);
 
-	g_asAudio.GetSpectrumData(leftSpectrum, rightSpectrum); // 獲取頻譜數據
+	ASAudio::GetInstance().GetSpectrumData(leftSpectrum, rightSpectrum);// 獲取頻譜數據
 
 	memcpy(leftAudioData, mWAVE_PARM.WAVE_DATA.LeftAudioBuffer, BUFFER_SIZE * sizeof(short));
 	memcpy(rightAudioData, mWAVE_PARM.WAVE_DATA.RightAudioBuffer, BUFFER_SIZE * sizeof(short));
@@ -480,39 +469,39 @@ extern "C" _declspec(dllexport) int __cdecl fft_thd_n_exe(short* leftAudioData, 
 	}
 
 	// 分析頻譜THD+N
-	g_asAudio.SpectrumAnalysis(leftSpectrumData, rightSpectrumData);
+	ASAudio::GetInstance().SpectrumAnalysis(leftSpectrumData, rightSpectrumData);
 	return result;
 }
 
 // 外部C函數，用於執行FFT轉換
-extern "C" _declspec(dllexport) int __cdecl fft_mute_exe(bool MuteWaveOut, bool MuteWaveIn,
+int __cdecl fft_mute_exe(bool MuteWaveOut, bool MuteWaveIn,
 	short* leftAudioData, short* rightAudioData, double* leftSpectrumData, double* rightSpectrumData)
 {
 	mWAVE_PARM.bMuteTest = true;
 	MMRESULT result = MMSYSERR_NOERROR;
 	if (MuteWaveIn)
-		g_asAudio.SetMicMute(true);
+		ASAudio::GetInstance().SetMicMute(true);
 	if (MuteWaveOut)
-		result = g_asAudio.SetSpeakerSystemVolume();
+		result = ASAudio::GetInstance().SetSpeakerSystemVolume();
 
 	if (result != MMSYSERR_NOERROR)
 		return result;
-	result = g_asAudio.StartRecordingAndDrawSpectrum();
+	result = ASAudio::GetInstance().StartRecordingAndDrawSpectrum();
 	if (result != MMSYSERR_NOERROR)
 		return result;
 
 	std::unique_lock<std::mutex> lock(mWAVE_PARM.recordingMutex);
 	// 等待直到錄音完成
 	//while簡寫 當isRecordingFinished == true 跳出
-	mWAVE_PARM.recordingFinishedCV.wait(lock, [] { return mWAVE_PARM.isRecordingFinished; });
+	mWAVE_PARM.recordingFinishedCV.wait(lock, [] { return mWAVE_PARM.isRecordingFinished;  });
 	mWAVE_PARM.isRecordingFinished = false;
 
-	g_asAudio.StopRecording();// 停止錄音
-	g_asAudio.stopPlayback(); // 停止播放檔
+	ASAudio::GetInstance().StopRecording();// 停止錄音
+	ASAudio::GetInstance().stopPlayback(); // 停止播放檔
 
 	fftw_complex* leftSpectrum;
 	fftw_complex* rightSpectrum;
-	g_asAudio.GetSpectrumData(leftSpectrum, rightSpectrum); // 獲取頻譜數據
+	ASAudio::GetInstance().GetSpectrumData(leftSpectrum, rightSpectrum); // 獲取頻譜數據
 	memcpy(leftAudioData, mWAVE_PARM.WAVE_DATA.LeftAudioBuffer, BUFFER_SIZE * sizeof(short));
 	memcpy(rightAudioData, mWAVE_PARM.WAVE_DATA.RightAudioBuffer, BUFFER_SIZE * sizeof(short));
 	double maxAmplitude = 0;
@@ -530,13 +519,13 @@ extern "C" _declspec(dllexport) int __cdecl fft_mute_exe(bool MuteWaveOut, bool 
 		rightSpectrumData[i] = sqrt((rightSpectrum[i][0] * rightSpectrum[i][0]) + (rightSpectrum[i][1] * rightSpectrum[i][1])) / BUFFER_SIZE;;
 	}
 	//分析頻譜
-	g_asAudio.SpectrumAnalysis(leftSpectrumData, rightSpectrumData);
+	ASAudio::GetInstance().SpectrumAnalysis(leftSpectrumData, rightSpectrumData);
 	//復原音量
 	mWAVE_PARM.bMuteTest = false;
 	if (MuteWaveIn)
-		g_asAudio.SetMicMute(false);
+		ASAudio::GetInstance().SetMicMute(false);
 	if (MuteWaveOut)
-		g_asAudio.SetSpeakerSystemVolume();
+		ASAudio::GetInstance().SetSpeakerSystemVolume();
 
 	return result;
 }
@@ -632,9 +621,13 @@ void ASAudio::SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumDa
 	double volume_dB = 10 * log10(totalEnergy);
 }
 
-// 創建ASAudio實例，傳入回調函數
-ASAudio g_asAudio([](fftw_complex* leftSpectrum, fftw_complex* rightSpectrum) {
-	});
+ASAudio & ASAudio::GetInstance()
+{
+	static ASAudio instance([](fftw_complex* leftSpectrum, fftw_complex* rightSpectrum) {
+				// This is a dummy callback, as the original global instance had one.
+			});
+	return instance;
+}
 
 // ASAudio類的構造函數
 ASAudio::ASAudio(SpectrumAnalysisCallback callback) : spectrumCallback(callback)
@@ -712,8 +705,8 @@ bool ASAudio::PlayWavFile(bool AutoClose) {
 	DataSize = DataChunkInfo.cksize;
 
 	// 分配緩衝區
-	WaveOutData = new char[DataSize];
-	mmioRead(handle, WaveOutData, DataSize);
+	WaveOutData.resize(DataSize);
+	mmioRead(handle, WaveOutData.data(), DataSize);
 
 	// 打開輸出設備
 	int iDevIndex = GetWaveOutDevice(mWAVE_PARM.WaveOutDev);
@@ -734,7 +727,7 @@ bool ASAudio::PlayWavFile(bool AutoClose) {
 
 	// 設置wave header.
 	memset(&WaveOutHeader, 0, sizeof(WaveOutHeader));
-	WaveOutHeader.lpData = WaveOutData;
+	WaveOutHeader.lpData = WaveOutData.data();
 	WaveOutHeader.dwBufferLength = DataSize;
 
 	// 準備wave header.
@@ -763,11 +756,7 @@ void ASAudio::StopPlayingWavFile() {
 	waveOutClose(hWaveOut);
 	// 清理用WaveOutPrepareHeader準備的Wave。
 	waveOutUnprepareHeader(hWaveOut, &WaveOutHeader, sizeof(WAVEHDR));
-	// 釋放內存
-	if (WaveOutData != NULL) {
-		delete[]WaveOutData;
-		WaveOutData = NULL;
-	}
+	WaveOutData.clear();
 }
 
 // 開始錄音
@@ -1356,7 +1345,7 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	// 初始化 COM
 	HRESULT hrInit = CoInitialize(nullptr);
 	if (FAILED(hrInit)) {
-		std::wcout << L"COM 初始化失敗！" << std::endl;
+		//std::wcout << L"COM 初始化失敗！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_COM_INITIALIZE#";
 		return false;
 	}
@@ -1365,14 +1354,14 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	hr = CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pGraph));
 	if (FAILED(hr)) {
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_FILTER_GRAPH#";
-		std::wcout << L"無法建立 Filter Graph！" << std::endl;
+		//std::wcout << L"無法建立 Filter Graph！" << std::endl;
 		return false;
 	}
 
 	// 建立 Capture Graph
 	hr = CoCreateInstance(CLSID_CaptureGraphBuilder2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pCaptureGraph));
 	if (FAILED(hr)) {
-		std::wcout << L"無法建立 Capture Graph！" << std::endl;
+		//std::wcout << L"無法建立 Capture Graph！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_CAPTURE_GRAPH#";
 		pGraph->Release();
 		CoUninitialize();
@@ -1388,7 +1377,7 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 
 	CoCreateInstance(CLSID_SystemDeviceEnum, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDevEnum));
 	if (FAILED(pDevEnum->CreateClassEnumerator(CLSID_AudioInputDeviceCategory, &pEnum, 0)) || !pEnum) {
-		std::wcout << L"未找到錄音裝置！" << std::endl;
+		//std::wcout << L"未找到錄音裝置！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
 		goto fail;
 	}
@@ -1418,14 +1407,14 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	pEnum->Release();
 
 	if (!pAudioCapture) {
-		std::wcout << L"未找到符合的錄音裝置！" << std::endl;
+		//std::wcout << L"未找到符合的錄音裝置！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
 		goto fail;
 	}
 
 	// 找到匹配的播放裝置
 	if (FAILED(pDevEnum->CreateClassEnumerator(CLSID_AudioRendererCategory, &pEnum, 0)) || !pEnum) {
-		std::wcout << L"未找到播放裝置！" << std::endl;
+		//std::wcout << L"未找到播放裝置！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_WAVEOUT_DEVICE_NOT_FIND_4#";
 		goto fail;
 	}
@@ -1455,7 +1444,7 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	pDevEnum->Release();
 
 	if (!pAudioRenderer) {
-		std::wcout << L"未找到符合的播放裝置！" << std::endl;
+		//std::wcout << L"未找到符合的播放裝置！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_NO_MATCH_RENDER_DEVICE#";
 		goto fail;
 	}
@@ -1467,7 +1456,7 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	// 連接錄音裝置到播放裝置
 	hr = pCaptureGraph->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Audio, pAudioCapture, nullptr, pAudioRenderer);
 	if (FAILED(hr)) {
-		std::wcout << L"無法建立錄音到播放的串流！" << std::endl;
+		//std::wcout << L"無法建立錄音到播放的串流！" << std::endl;
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_RENDER_STREAM#";
 		goto fail;
 	}
@@ -1476,8 +1465,8 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	pGraph->QueryInterface(IID_PPV_ARGS(&pMediaControl));
 	pMediaControl->Run();
 
-	std::wcout << L"正在轉發音訊... 按 Enter 結束" << std::endl;
-	std::wcin.get();
+	//std::wcout << L"正在轉發音訊... 按 Enter 結束" << std::endl;
+	//std::wcin.get();
 
 	return true;
 

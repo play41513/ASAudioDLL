@@ -44,10 +44,10 @@
             // 
             // textBox1
             // 
-            textBox1.Location = new Point(462, 81);
+            textBox1.Location = new Point(171, 12);
             textBox1.Multiline = true;
             textBox1.Name = "textBox1";
-            textBox1.Size = new Size(125, 34);
+            textBox1.Size = new Size(598, 426);
             textBox1.TabIndex = 1;
             // 
             // Form1
