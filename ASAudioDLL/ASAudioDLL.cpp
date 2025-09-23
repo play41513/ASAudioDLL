@@ -17,6 +17,8 @@
 #include <initguid.h>
 #include <comdef.h> // for _bstr_t
 
+
+
 // Global Variables
 WAVE_PARM mWAVE_PARM;
 WAVEHDR waveHdr; // WAVEHDR結構，用於錄音緩衝
@@ -60,120 +62,24 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 
 		Config configs;
 		if (!ASAudio::ReadConfig(filePath, configs)) {
+			strMacroResult = "LOG:ERROR_CONFIG_NOT_FIND#";
 			hasError = true;
 		}
-
-		// --- Check WaveOut Device ---
-		if (!hasError && mWAVE_PARM.WaveOutDev != L"") {
-			ULONGLONG timeout = GetTickCount64() + 5000;
-			while (ASAudio::GetWaveOutDevice(mWAVE_PARM.WaveOutDev.c_str()) == -1) {
-				if (GetTickCount64() > timeout) {
-					strMacroResult = "LOG:ERROR_AUDIO_WAVEOUT_DEVICE_NOT_FIND#";
-					hasError = true;
-					break;
-				}
-				Sleep(100);
-			}
-			if (!hasError) {
-				ASAudio::GetInstance().SetSpeakerSystemVolume();
-			}
+		else {
+			// 將原本在 ReadConfig 中的初始化邏輯移到這裡
+			fft_set_test_parm(
+				configs.outDeviceName.c_str(),
+				configs.outDeviceVolume,
+				configs.inDeviceName.c_str(),
+				configs.inDeviceVolume,
+				configs.frequencyL,
+				configs.frequencyR,
+				configs.waveOutDelay
+			);
+			mWAVE_PARM.AudioFile = configs.WAVFilePath_w;
+			ASAudio::GetInstance().ExecuteTestsFromConfig(configs);
 		}
-
-		// --- Check WaveIn Device ---
-		if (!hasError && mWAVE_PARM.WaveInDev != L"") {
-			ULONGLONG timeout = GetTickCount64() + 5000;
-			while (ASAudio::GetWaveInDevice(mWAVE_PARM.WaveInDev.c_str()) == -1) {
-				if (GetTickCount64() > timeout) {
-					strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
-					hasError = true;
-					break;
-				}
-				Sleep(100);
-			}
-			if (!hasError) {
-				ASAudio::GetInstance().SetMicSystemVolume();
-			}
-		}
-
-		// --- Audio Test Logic ---
-		if (!hasError && configs.AudioTestEnable) {
-			memset(leftAudioData, 0, sizeof(leftAudioData));
-			memset(rightAudioData, 0, sizeof(rightAudioData));
-			memset(leftSpectrumData, 0, sizeof(leftSpectrumData));
-			memset(rightSpectrumData, 0, sizeof(rightSpectrumData));
-			memset(thd_n, 0, sizeof(thd_n));
-			memset(dB_ValueMax, 0, sizeof(dB_ValueMax));
-			memset(freq, 0, sizeof(freq));
-
-			fft_thd_n_exe(leftAudioData, rightAudioData, leftSpectrumData, rightSpectrumData);
-			fft_get_thd_n_db(thd_n, dB_ValueMax, freq);
-
-			if (thd_n[0] > configs.thd_n || thd_n[1] > configs.thd_n) {
-				std::stringstream ss;
-				ss << "LOG:ERROR_AUDIO_THD_N_VALUE_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1] << "#";
-				strMacroResult = ss.str();
-				hasError = true;
-			}
-			else if (dB_ValueMax[0] < configs.db_ValueMax || dB_ValueMax[1] < configs.db_ValueMax) {
-				std::stringstream ss;
-				ss << "LOG:ERROR_AUDIO_DB_MAX_VALUE_" << "L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1] << "#";
-				strMacroResult = ss.str();
-				hasError = true;
-			}
-			else if (freq[0] != configs.frequencyL || freq[1] != configs.frequencyR) {
-				std::stringstream ss;
-				ss << "LOG:ERROR_AUDIO_FREQUENCY_" << "L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
-				strMacroResult = ss.str();
-				hasError = true;
-			}
-			else {
-				std::stringstream ss;
-				ss << "LOG:SUCCESS_AUDIO_TEST_THD_N_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1]
-					<< "_dB_ValueMax_L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1]
-					<< "_Frequency_L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
-				strMacroResult = ss.str();
-			}
-		}
-
-		// --- Play WAV File ---
-		if (!hasError && configs.PlayWAVFileEnable) {
-			if (!ASAudio::PlayWavFile(configs.AutoCloseWAVFile)) {
-				hasError = true; // PlayWavFile 內部會設定 strMacroResult
-			}
-		}
-
-		// --- Close WAV File ---
-		if (!hasError && configs.CloseWAVFileEnable) {
-			ASAudio::StopPlayingWavFile();
-		}
-
-		// --- Audio Loopback ---
-		if (!hasError && configs.AudioLoopBackEnable) {
-			if (configs.AudioLoopBackStart) {
-				ShellExecute(0, L"open", L"control mmsys.cpl,,1", 0, 0, SW_SHOWNORMAL);
-				if (!ASAudio::StartAudioLoopback(mWAVE_PARM.WaveInDev.c_str(), mWAVE_PARM.WaveOutDev.c_str())) {
-					hasError = true; // StartAudioLoopback 內部會設定 strMacroResult
-				}
-			}
-			else {
-				ASAudio::StopAudioLoopback();
-			}
-		}
-
-		// --- Switch Default Audio Device ---
-		if (!hasError && configs.SwitchDefaultAudioEnable) {
-			std::wstring deviceId;
-			if (ASAudio::FindDeviceIdByName(configs, deviceId)) {
-				if (!ASAudio::SetDefaultAudioPlaybackDevice(deviceId)) {
-					strMacroResult = "LOG:ERROR_AUDIO_CHANGE_DEFAULT_DEVICE#";
-					hasError = true;
-				}
-			}
-			else { // FindDeviceIdByName 內部會設定 strMacroResult
-				hasError = true;
-			}
-		}
-
+		bool hasError = (strMacroResult.find("ERROR") != std::string::npos);
 		// 如果有任何測試失敗，且是在互動模式下，則跳出提示
 		if (hasError) {
 			if (ownerHwnd != NULL) { // 如果 ownerHwnd 不為 NULL，才顯示錯誤訊息
@@ -187,7 +93,7 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 	} while (shouldRetry);
 
 	// 如果 strMacroResult 為空 (例如所有功能都 disable)，給一個預設成功訊息
-	if (strMacroResult.empty() || !hasError) {
+	if (strMacroResult.empty()) {
 		strMacroResult = "LOG:PASS#";
 	}
 
@@ -207,7 +113,6 @@ bool ASAudio::ReadConfig(const std::string& filePath, Config& config)
 	std::ifstream file(filePath);
 	if (!file.good())
 	{
-		strMacroResult = "LOG:ERROR_AUDIO_CONFIG_NOT_FIND#";
 		return false;
 	}
 	file.close();
@@ -254,21 +159,12 @@ bool ASAudio::ReadConfig(const std::string& filePath, Config& config)
 
 	GetPrivateProfileStringA("PlayWAVFile", "WAVFilePath", "", buffer, sizeof(buffer), filePath.c_str());
 	config.WAVFilePath = buffer;
+	config.WAVFilePath_w = ASAudio::GetInstance().charToWstring(config.WAVFilePath.c_str());
 
 	iNumber = GetPrivateProfileIntA("AudioLoopBack", "AudioLoopBackEnable", 0, filePath.c_str());
 	config.AudioLoopBackEnable = iNumber == 1 ? true : false;
 	iNumber = GetPrivateProfileIntA("AudioLoopBack", "AudioLoopBackStart", 0, filePath.c_str());
 	config.AudioLoopBackStart = iNumber == 1 ? true : false;
-
-	fft_set_test_parm(
-		config.outDeviceName.c_str()
-		, config.outDeviceVolume
-		, config.inDeviceName.c_str()
-		, config.inDeviceVolume
-		, config.frequencyL
-		, config.frequencyR
-		, config.waveOutDelay);
-	mWAVE_PARM.AudioFile = ASAudio::GetInstance().charToWstring(config.WAVFilePath.c_str());
 
 	iNumber = GetPrivateProfileIntA("SwitchDefaultAudio", "SwitchDefaultAudioEnable", 0, filePath.c_str());
 	config.SwitchDefaultAudioEnable = iNumber == 1 ? true : false;
@@ -288,6 +184,143 @@ bool ASAudio::ReadConfig(const std::string& filePath, Config& config)
 	iNumber = GetPrivateProfileIntA("SwitchDefaultAudio", "AudioIndex", 0, filePath.c_str());
 	config.AudioIndex = iNumber;
 
+	return true;
+}
+
+bool ASAudio::ExecuteTestsFromConfig(const Config& config)
+{
+	// 裝置存在性檢查
+	if (config.outDeviceName != "") {
+		ULONGLONG timeout = GetTickCount64() + 5000;
+		while (ASAudio::GetWaveOutDevice(ASAudio::GetInstance().charToWstring(config.outDeviceName.c_str())) == -1) {
+			if (GetTickCount64() > timeout) {
+				strMacroResult = "LOG:ERROR_AUDIO_WAVEOUT_DEVICE_NOT_FIND#";
+				return false;
+			}
+			Sleep(100);
+		}
+		ASAudio::GetInstance().SetSpeakerSystemVolume();
+	}
+	if (config.inDeviceName != "") {
+		ULONGLONG timeout = GetTickCount64() + 5000;
+		while (ASAudio::GetWaveInDevice(ASAudio::GetInstance().charToWstring(config.inDeviceName.c_str())) == -1) {
+			if (GetTickCount64() > timeout) {
+				strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
+				return false;
+			}
+			Sleep(100);
+		}
+		ASAudio::GetInstance().SetMicSystemVolume();
+	}
+
+
+	// 依序呼叫 private 輔助函式
+	if (config.AudioTestEnable) {
+		if (!RunAudioTest(config)) return false;
+	}
+
+	if (config.PlayWAVFileEnable || config.CloseWAVFileEnable) {
+		if (!RunWavPlayback(config)) return false;
+	}
+
+	if (config.AudioLoopBackEnable) {
+		if (!RunAudioLoopback(config)) return false;
+	}
+
+	if (config.SwitchDefaultAudioEnable) {
+		if (!RunSwitchDefaultDevice(config)) return false;
+	}
+
+	return true; // 所有執行成功的測試都通過
+}
+
+bool ASAudio::RunAudioTest(const Config& config)
+{
+	// 將 MacroTest 中關於 AudioTest 的邏輯完整搬移到這裡
+	memset(leftAudioData, 0, sizeof(leftAudioData));
+	memset(rightAudioData, 0, sizeof(rightAudioData));
+	memset(leftSpectrumData, 0, sizeof(leftSpectrumData));
+	memset(rightSpectrumData, 0, sizeof(rightSpectrumData));
+	memset(thd_n, 0, sizeof(thd_n));
+	memset(dB_ValueMax, 0, sizeof(dB_ValueMax));
+	memset(freq, 0, sizeof(freq));
+
+	fft_thd_n_exe(leftAudioData, rightAudioData, leftSpectrumData, rightSpectrumData);
+	fft_get_thd_n_db(thd_n, dB_ValueMax, freq);
+
+	if (thd_n[0] > config.thd_n || thd_n[1] > config.thd_n) {
+		std::stringstream ss;
+		ss << "LOG:ERROR_AUDIO_THD_N_VALUE_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1] << "#";
+		strMacroResult = ss.str();
+		return false; // 代表測試失敗
+	}
+	else if (dB_ValueMax[0] < config.db_ValueMax || dB_ValueMax[1] < config.db_ValueMax) {
+		std::stringstream ss;
+		ss << "LOG:ERROR_AUDIO_DB_MAX_VALUE_" << "L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1] << "#";
+		strMacroResult = ss.str();
+		return false;
+	}
+	else if (freq[0] != config.frequencyL || freq[1] != config.frequencyR) {
+		std::stringstream ss;
+		ss << "LOG:ERROR_AUDIO_FREQUENCY_" << "L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
+		strMacroResult = ss.str();
+		return false;
+	}
+	else {
+		std::stringstream ss;
+		ss << "LOG:SUCCESS_AUDIO_TEST_THD_N_" << "L_" << (int)thd_n[0] << "_R_" << (int)thd_n[1]
+			<< "_dB_ValueMax_L_" << (int)dB_ValueMax[0] << "_R_" << (int)dB_ValueMax[1]
+			<< "_Frequency_L_" << (int)freq[0] << "_R_" << (int)freq[1] << "#";
+		strMacroResult = ss.str();
+		return true; // 代表測試成功
+	}
+}
+bool ASAudio::RunWavPlayback(const Config& config)
+{
+	if (config.PlayWAVFileEnable) {
+		if (!ASAudio::PlayWavFile(config.AutoCloseWAVFile)) {
+			// PlayWavFile 內部會設定 strMacroResult，所以這裡不用再設
+			return false;
+		}
+	}
+
+	// 注意：即使 PlayWAVFileEnable 是 false，我們可能也需要關閉
+	// 這部分邏輯保持和您原本的一樣
+	if (config.CloseWAVFileEnable) {
+		ASAudio::StopPlayingWavFile();
+	}
+	return true;
+}
+bool ASAudio::RunAudioLoopback(const Config& config)
+{
+	if (config.AudioLoopBackStart) {
+		ShellExecute(0, L"open", L"control mmsys.cpl,,1", 0, 0, SW_SHOWNORMAL);
+		if (!ASAudio::StartAudioLoopback(mWAVE_PARM.WaveInDev.c_str(), mWAVE_PARM.WaveOutDev.c_str())) {
+			// StartAudioLoopback 內部會設定 strMacroResult
+			return false;
+		}
+	}
+	else {
+		ASAudio::StopAudioLoopback();
+	}
+	return true;
+}
+bool ASAudio::RunSwitchDefaultDevice(const Config& config)
+{
+	std::wstring deviceId;
+	// 我們需要傳遞一個 non-const 的 config，因為 FindDeviceIdByName 會修改它 (雖然最好不要)
+	// 為了最小化改動，我們先複製一份
+	Config nonConstConfig = config;
+	if (ASAudio::FindDeviceIdByName(nonConstConfig, deviceId)) {
+		if (!ASAudio::SetDefaultAudioPlaybackDevice(deviceId)) {
+			strMacroResult = "LOG:ERROR_AUDIO_CHANGE_DEFAULT_DEVICE#";
+			return false;
+		}
+	}
+	else {
+		// FindDeviceIdByName 內部會設定 strMacroResult
+		return false;
+	}
 	return true;
 }
 

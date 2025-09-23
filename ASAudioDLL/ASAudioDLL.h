@@ -20,6 +20,7 @@
 #pragma comment(lib,"winmm.lib")
 #pragma warning(disable:4244)
 
+
 void fft_set_test_parm(const char* szOutDevName, int WaveOutVolume, const char* szInDevName, int WaveInVolume, int frequencyL, int frequencyR, int WaveOutdelay);
 void fft_set_audio_volume(const char* szOutDevName, int WaveOutVolume, const char* szInDevName, int WaveInVolume);
 void fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq);
@@ -55,6 +56,7 @@ struct Config {
 	bool CloseWAVFileEnable = false;
 	bool AutoCloseWAVFile = false;
 	std::string WAVFilePath = "";
+	std::wstring WAVFilePath_w = L"";
 
 	bool AudioLoopBackEnable = false;
 	bool AudioLoopBackStart = false;
@@ -158,6 +160,10 @@ public:
 	static void StopAudioLoopback();
 	static bool FindDeviceIdByName(Config& config, std::wstring& outDeviceId);
 	static bool SetDefaultAudioPlaybackDevice(const std::wstring& deviceId);
+
+	bool ExecuteTestsFromConfig(const Config& config);
+
+
 private:
 
 	ASAudio(SpectrumAnalysisCallback callback);
@@ -180,5 +186,11 @@ private:
 		const PaStreamCallbackTimeInfo* timeInfo,
 		PaStreamCallbackFlags statusFlags,
 		void* userData);
+
+	bool RunAudioTest(const Config& config);
+	bool RunWavPlayback(const Config& config);
+	bool RunAudioLoopback(const Config& config);
+	bool RunSwitchDefaultDevice(const Config& config);
+
 
 };
