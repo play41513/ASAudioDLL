@@ -32,3 +32,4 @@ enum class ErrorCode {
 
 // 定義錯誤碼和錯誤訊息的映射
 extern const std::unordered_map<ErrorCode, const wchar_t*> error_map;
+

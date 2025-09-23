@@ -170,16 +170,16 @@ private:
     paTestData data;
 
     // DirectShow 相關的 COM 介面指標
-    IGraphBuilder* pGraph;
-    ICaptureGraphBuilder2* pCaptureGraph;
-    IMediaControl* pMediaControl;
-    IBaseFilter* pAudioCapture;
-    IBaseFilter* pAudioRenderer;
+    CComPtr<IGraphBuilder> pGraph;
+    CComPtr<ICaptureGraphBuilder2> pCaptureGraph;
+    CComPtr<IMediaControl> pMediaControl;
+    CComPtr<IBaseFilter> pAudioCapture;
+    CComPtr<IBaseFilter> pAudioRenderer;
 
     // 其他狀態變數
     bool bFirstWaveInFlag;
     std::string strMacroResult;
-    std::wstring allContent; // allContent 也應該由 ASAudio 管理
+    std::wstring allContent; 
 
     // --- 成員變數 ---
     WAVE_PARM mWAVE_PARM;

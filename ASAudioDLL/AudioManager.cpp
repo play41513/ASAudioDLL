@@ -6,24 +6,19 @@
 #include <sstream>      // 用於組合字串
 #include <shellapi.h>   // 為了使用 ShellExecute 來打開音效設定面板
 
-extern short leftAudioData[BUFFER_SIZE];
-extern short rightAudioData[BUFFER_SIZE];
-extern double leftSpectrumData[BUFFER_SIZE];
-extern double rightSpectrumData[BUFFER_SIZE];
 
 extern "C" int fft_thd_n_exe(short*, short*, double*, double*);
 extern "C" void fft_get_thd_n_db(double*, double*, double*);
 
-extern double thd_n[2];
-extern double dB_ValueMax[2];
-extern double freq[2];
-extern short leftAudioData[];
-extern short rightAudioData[];
-extern double leftSpectrumData[];
-extern double rightSpectrumData[];
 
 AudioManager::AudioManager() {
-    // 建構函式，目前不需要做特別的事情
+    memset(leftAudioData, 0, sizeof(leftAudioData));
+    memset(rightAudioData, 0, sizeof(rightAudioData));
+    memset(leftSpectrumData, 0, sizeof(leftSpectrumData));
+    memset(rightSpectrumData, 0, sizeof(rightSpectrumData));
+    memset(thd_n, 0, sizeof(thd_n));
+    memset(dB_ValueMax, 0, sizeof(dB_ValueMax));
+    memset(freq, 0, sizeof(freq));
 }
 
 const std::string& AudioManager::GetResultString() const {

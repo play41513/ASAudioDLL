@@ -28,9 +28,8 @@ static int GetIMMWaveOutDevice(IMMDeviceCollection* pDevices, std::wstring szOut
 	}
 
 	for (UINT i = 0; i < deviceCount; ++i) {
-		IMMDevice* pDevice = nullptr;
-		LPWSTR deviceId = nullptr;
-		IPropertyStore* pProps = nullptr;
+		CComPtr<IMMDevice> pDevice;
+		CComPtr<IPropertyStore> pProps;
 
 		// 取得裝置
 		if (SUCCEEDED(pDevices->Item(i, &pDevice))) {
@@ -46,16 +45,12 @@ static int GetIMMWaveOutDevice(IMMDeviceCollection* pDevices, std::wstring szOut
 					// 檢查名稱是否相符
 					if (deviceName.find(szOutDevName) != std::wstring::npos) {
 						PropVariantClear(&varName);
-						pProps->Release();
-						pDevice->Release();
 						return i; // 找到相符裝置
 					}
 				}
 				PropVariantClear(&varName);
 			}
-			if (pProps) pProps->Release();
 		}
-		if (pDevice) pDevice->Release();
 	}
 	return -1; // 找不到裝置
 }
@@ -75,7 +70,7 @@ void ASAudio::GetSpectrumData(fftw_complex*& leftSpectrum, fftw_complex*& rightS
 }
 ASAudio& ASAudio::GetInstance()
 {
-	static ASAudio instance; // Simply create the instance
+	static ASAudio instance; 
 	return instance;
 }
 const std::string& ASAudio::GetLastResult() const
@@ -84,7 +79,7 @@ const std::string& ASAudio::GetLastResult() const
 }
 
 ASAudio::ASAudio() :
-	spectrumCallback(nullptr), // 這是一個 dummy callback
+	spectrumCallback(nullptr), 
 	bufferIndex(0),
 	hWaveIn(NULL),
 	hWaveOut(NULL),
@@ -392,7 +387,6 @@ MMRESULT ASAudio::StopRecording() {
 		result = waveInClose(hWaveIn); // Close the recording device
 	}
 	waveInPrepareHeader(hWaveIn, &waveHdr, sizeof(WAVEHDR));
-	VirtualFree(&waveHdr.lpData, 0, MEM_RELEASE);
 	return result;
 }
 
@@ -914,83 +908,77 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 
 	// 建立 Graph (圖形管理器)
 	hr = CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pGraph));
-	if (FAILED(hr)) { /* ... */ return false; }
+	if (FAILED(hr)) { return false; }
 	hr = CoCreateInstance(CLSID_CaptureGraphBuilder2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pCaptureGraph));
-	if (FAILED(hr)) { /* ... */ pGraph->Release(); CoUninitialize(); return false; }
+	if (FAILED(hr)) { CoUninitialize(); return false; }
 	pCaptureGraph->SetFiltergraph(pGraph);
 
 	// 建立裝置列舉器
-	ICreateDevEnum* pDevEnum = nullptr;
-	CoCreateInstance(CLSID_SystemDeviceEnum, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDevEnum));
+	CComPtr<ICreateDevEnum> pDevEnum;
+	hr = CoCreateInstance(CLSID_SystemDeviceEnum, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDevEnum));
 
 	// --- 尋找指定的擷取與渲染裝置的篩選器 ---
-	if (pDevEnum) {
-		IEnumMoniker* pEnum = nullptr;
+	if (SUCCEEDED(hr)) {
+		CComPtr<IEnumMoniker> pEnum;
 		if (SUCCEEDED(pDevEnum->CreateClassEnumerator(CLSID_AudioInputDeviceCategory, &pEnum, 0)) && pEnum) {
-			IMoniker* pMoniker = nullptr;
-			while (pEnum->Next(1, &pMoniker, nullptr) == S_OK) {
-				IPropertyBag* pPropBag = nullptr;
-				bool foundDevice = false;
+			// 將 pMoniker 宣告移至迴圈內
+			while (true) {
+				CComPtr<IMoniker> pMoniker;
+				if (pEnum->Next(1, &pMoniker, nullptr) != S_OK) {
+					break; // 找不到更多裝置，跳出迴圈
+				}
+
+				CComPtr<IPropertyBag> pPropBag;
 				if (SUCCEEDED(pMoniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&pPropBag))) && pPropBag) {
 					VARIANT varName;
 					VariantInit(&varName);
 					if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, nullptr))) {
 						if (wcsstr(varName.bstrVal, captureKeyword.c_str())) {
-							if (SUCCEEDED(pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioCapture))) {
-								foundDevice = true; // 就是這個裝置
-							}
+							pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioCapture);
 						}
 					}
 					VariantClear(&varName);
-					pPropBag->Release();
 				}
-				pMoniker->Release(); // 在迴圈的每次迭代都釋放，只保留一個
-				if (foundDevice) {
-					break; // 找到，break
-				}
+				if (pAudioCapture) break; // 找到裝置，跳出迴圈
 			}
-			pEnum->Release();
 		}
 	}
 
 	if (!pAudioCapture) {
 		strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
-		goto fail;
+		CoUninitialize();
+		return false;
 	}
 
-	if (pDevEnum) {
-		IEnumMoniker* pEnum = nullptr;
+	if (SUCCEEDED(hr)) {
+		CComPtr<IEnumMoniker> pEnum;
 		if (SUCCEEDED(pDevEnum->CreateClassEnumerator(CLSID_AudioRendererCategory, &pEnum, 0)) && pEnum) {
-			IMoniker* pMoniker = nullptr;
-			while (pEnum->Next(1, &pMoniker, nullptr) == S_OK) {
-				IPropertyBag* pPropBag = nullptr;
-				bool foundDevice = false;
+			while (true) {
+				CComPtr<IMoniker> pMoniker;
+				if (pEnum->Next(1, &pMoniker, nullptr) != S_OK) {
+					break;
+				}
+
+				CComPtr<IPropertyBag> pPropBag;
 				if (SUCCEEDED(pMoniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&pPropBag))) && pPropBag) {
 					VARIANT varName;
 					VariantInit(&varName);
 					if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, nullptr))) {
 						if (wcsstr(varName.bstrVal, renderKeyword.c_str())) {
-							if (SUCCEEDED(pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioRenderer))) {
-								foundDevice = true; // 就是這個裝置
-							}
+							pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioRenderer);
 						}
 					}
 					VariantClear(&varName);
-					pPropBag->Release();
 				}
-				pMoniker->Release(); // 在迴圈的每次迭代都釋放，只保留一個
-				if (foundDevice) {
-					break; // 找到，break
-				}
+				if (pAudioRenderer) break;
 			}
-			pEnum->Release();
 		}
-		pDevEnum->Release(); // 釋放 pDevEnum
 	}
 
 	if (!pAudioRenderer) {
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_NO_MATCH_RENDER_DEVICE#";
-		goto fail;
+		CoUninitialize();
+		return false;
 	}
 
 	// 將篩選器加入圖形...
@@ -999,46 +987,24 @@ bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::w
 	hr = pCaptureGraph->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Audio, pAudioCapture, nullptr, pAudioRenderer);
 	if (FAILED(hr)) {
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_RENDER_STREAM#";
-		goto fail;
+		return false;
 	}
 	pGraph->QueryInterface(IID_PPV_ARGS(&pMediaControl));
 	pMediaControl->Run();
 	return true;
-
-fail:
-	if (pDevEnum) pDevEnum->Release();
-	if (pAudioCapture) pAudioCapture->Release();
-	if (pAudioRenderer) pAudioRenderer->Release();
-	if (pCaptureGraph) pCaptureGraph->Release();
-	if (pGraph) pGraph->Release();
-	CoUninitialize();
-	return false;
 }
 
 void ASAudio::StopAudioLoopback()
 {
 	if (pMediaControl) {
 		pMediaControl->Stop();
-		pMediaControl->Release();
-		pMediaControl = nullptr;
 	}
 
-	if (pAudioCapture) {
-		pAudioCapture->Release();
-		pAudioCapture = nullptr;
-	}
-	if (pAudioRenderer) {
-		pAudioRenderer->Release();
-		pAudioRenderer = nullptr;
-	}
-	if (pCaptureGraph) {
-		pCaptureGraph->Release();
-		pCaptureGraph = nullptr;
-	}
-	if (pGraph) {
-		pGraph->Release();
-		pGraph = nullptr;
-	}
+	pMediaControl = nullptr;
+	pAudioCapture = nullptr;
+	pAudioRenderer = nullptr;
+	pCaptureGraph = nullptr;
+	pGraph = nullptr;
 
 	CoUninitialize();
 }

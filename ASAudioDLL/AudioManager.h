@@ -1,6 +1,7 @@
 #pragma once
 
-#include "ConfigManager.h" // 需要用到 Config 結構
+#include "ConfigManager.h"
+#include "ConstantString.h"
 #include <string>
 
 /*
@@ -17,7 +18,6 @@ public:
     // 主要的執行函式
     // 根據提供的設定檔內容，執行所有被啟用的測試。
     // 如果所有啟用的測試都順利執行，則返回 true。
-    // 注意：返回 true 不代表測試 "通過 (PASS)"，僅代表流程 "執行完畢"。
     // 測試的具體結果 (PASS/FAIL) 儲存在 resultString 中。
     bool ExecuteTestsFromConfig(const Config& config);
 
@@ -41,4 +41,17 @@ private:
 
     // 用於儲存整個測試流程最終結果的字串
     std::string resultString;
+
+    // 音訊資料緩衝區
+    short leftAudioData[BUFFER_SIZE];
+    short rightAudioData[BUFFER_SIZE];
+
+    // 頻譜資料緩衝區
+    double leftSpectrumData[BUFFER_SIZE];
+    double rightSpectrumData[BUFFER_SIZE];
+
+    // 測試結果
+    double thd_n[2];        // 儲存 THD+N 結果 (L/R)
+    double dB_ValueMax[2];  // 儲存最大音量 (dB) 結果 (L/R)
+    double freq[2];         // 儲存頻率結果 (L/R)
 };
