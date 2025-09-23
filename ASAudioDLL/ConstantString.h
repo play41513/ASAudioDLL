@@ -11,6 +11,13 @@
 #define ERROR_CODE_SET_SPEAKER_SYSTEM_VOLUME	7
 #define ERROR_CODE_UNSET_PARAMETER				8
 
+static const int BUFFER_SIZE = 2205; //控制到頻譜每一個點為20Hz，每五十個點為1K Hz
+
+#define M_PI 3.14159235358979323
+#define SAMPLE_RATE 44100       // 定義採樣率為44100Hz
+#define AMPLITUDE 0.5           // 定義信號振幅為0.5
+#define FRAMES_PER_BUFFER 256   // 定義每個緩衝區的幀數
+
 // 定義錯誤碼枚舉型態
 enum class ErrorCode {
     NOT_FIND_WAVEIN_DEV = 1,
@@ -24,13 +31,4 @@ enum class ErrorCode {
 };
 
 // 定義錯誤碼和錯誤訊息的映射
-extern const std::unordered_map<ErrorCode, const wchar_t*> error_map = {
-    {ErrorCode::NOT_FIND_WAVEIN_DEV, L"ERROR_CODE_NOT_FIND_WAVEIN_DEV"},
-    {ErrorCode::OPEN_WAVEIN_DEV, L"ERROR_CODE_OPEN_WAVEIN_DEV"},
-    {ErrorCode::NOT_FIND_WAVEOUT_DEV, L"ERROR_CODE_NOT_FIND_WAVEOUT_DEV"},
-    {ErrorCode::OPEN_INIT_WAVEOUT_DEV, L"ERROR_CODE_OPEN_INIT_WAVEOUT_DEV"},
-    {ErrorCode::OPEN_WAVEOUT_DEV, L"ERROR_CODE_OPEN_WAVEOUT_DEV"},
-    {ErrorCode::START_WAVEOUT_DEV, L"ERROR_CODE_START_WAVEOUT_DEV"},
-    {ErrorCode::SET_SPEAKER_SYSTEM_VOLUME, L"ERROR_CODE_SET_SPEAKER_SYSTEM_VOLUME"},
-    {ErrorCode::UNSET_PARAMETER, L"ERROR_CODE_UNSET_PARAMETER"}
-};
+extern const std::unordered_map<ErrorCode, const wchar_t*> error_map;

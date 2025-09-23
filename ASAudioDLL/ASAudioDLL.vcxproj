@@ -150,14 +150,20 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="ASAudio.h" />
+    <ClInclude Include="ConfigManager.h" />
     <ClInclude Include="fftw3.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="ASAudioDLL.h" />
     <ClInclude Include="ConstantString.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="AudioManager.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ASAudio.cpp" />
+    <ClCompile Include="AudioManager.cpp" />
+    <ClCompile Include="ConfigManager.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
