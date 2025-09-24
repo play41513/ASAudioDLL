@@ -18,7 +18,9 @@ struct Config {
     int frequencyR;
     int waveOutDelay;
     int thd_n;
-    int db_ValueMax;
+    int FundamentalLevel_dBFS;
+    bool snrTestEnable;      // 是否啟用 SNR 測試
+    double snrThreshold;     // SNR 的合格標準 (單位: dB)
 
     // [PlayWAVFile]
     bool PlayWAVFileEnable;
@@ -26,6 +28,7 @@ struct Config {
     bool AutoCloseWAVFile;
     std::string WAVFilePath;
     std::wstring WAVFilePath_w;
+    double fundamentalBandwidthHz;
 
     // [AudioLoopBack]
     bool AudioLoopBackEnable;

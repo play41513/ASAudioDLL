@@ -54,8 +54,13 @@ bool ConfigManager::ReadConfig(const std::string& filePath, Config& config)
     iNumber = GetPrivateProfileIntA("AudioTest", "thd_n", 0, filePath.c_str());
     config.thd_n = iNumber;
 
-    iNumber = GetPrivateProfileIntA("AudioTest", "db_ValueMax", 0, filePath.c_str());
-    config.db_ValueMax = iNumber;
+    iNumber = GetPrivateProfileIntA("AudioTest", "FundamentalLevel_dBFS", 0, filePath.c_str());
+    config.FundamentalLevel_dBFS = iNumber;
+
+    config.fundamentalBandwidthHz = GetPrivateProfileIntA("AudioTest", "FundamentalBandwidthHz", 100, filePath.c_str());
+
+    config.snrTestEnable = GetPrivateProfileIntA("AudioTest", "SNRTestEnable", 0, filePath.c_str()) == 1;
+    config.snrThreshold = GetPrivateProfileIntA("AudioTest", "SNRThreshold", 80, filePath.c_str()); // 預設門檻為 80dB
 
     iNumber = GetPrivateProfileIntA("PlayWAVFile", "PlayWAVFileEnable", 0, filePath.c_str());
     config.PlayWAVFileEnable = iNumber == 1 ? true : false;

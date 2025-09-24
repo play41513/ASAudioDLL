@@ -141,93 +141,162 @@ const std::wstring& ASAudio::GetLog() const {
 
 void ASAudio::SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumData)
 {
-	const double Fs = 44100; // 取樣頻率
-	const int freqBins = BUFFER_SIZE / 2 + 1; // 頻率bin數量
-	double leftMagnitude, rightMagnitude; // 當前頻率bin的振幅
+	const int N = BUFFER_SIZE;
+	const int freqBins = N / 2;
 
-	auto& leftTempWAVE_ANALYSIS = mWAVE_PARM.bMuteTest ? mWAVE_PARM.leftMuteWAVE_ANALYSIS : mWAVE_PARM.leftWAVE_ANALYSIS;
-	auto& RightTempWAVE_ANALYSIS = mWAVE_PARM.bMuteTest ? mWAVE_PARM.rightMuteWAVE_ANALYSIS : mWAVE_PARM.rightWAVE_ANALYSIS;
-	leftTempWAVE_ANALYSIS.TotalEnergyPoint = 0; // 左聲道最大能量點歸零
-	RightTempWAVE_ANALYSIS.TotalEnergyPoint = 0; // 右聲道最大能量點歸零
-	leftTempWAVE_ANALYSIS.TotalEnergy = 0; // 左聲道總能量歸零
-	RightTempWAVE_ANALYSIS.TotalEnergy = 0; // 右聲道總能量歸零
+	// Hann Window ---
+	fftw_complex* windowedInputLeft = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
+	fftw_complex* windowedInputRight = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * N);
 
-	double maxLeftMagnitude = 0;
-	double maxRightMagnitude = 0;
-
-	// 計算總能量和最大能量點
-	for (int i = 2; i < freqBins; ++i) {//頻率0和1不計算
-		leftMagnitude = leftSpectrumData[i]; // 當前左聲道頻率bin的振幅
-		rightMagnitude = rightSpectrumData[i]; // 當前右聲道頻率bin的振幅
-
-		// 累加所有頻率的能量（振幅的平方）
-		leftTempWAVE_ANALYSIS.TotalEnergy += leftMagnitude * leftMagnitude;
-		RightTempWAVE_ANALYSIS.TotalEnergy += rightMagnitude * rightMagnitude;
-
-		// 更新最大能量點和最大值
-		if (leftMagnitude > maxLeftMagnitude) {
-			maxLeftMagnitude = leftMagnitude;
-			leftTempWAVE_ANALYSIS.TotalEnergyPoint = i;
-		}
-		if (rightMagnitude > maxRightMagnitude) {
-			maxRightMagnitude = rightMagnitude;
-			RightTempWAVE_ANALYSIS.TotalEnergyPoint = i;
-		}
+	double windowSum = 0.0;
+	for (int i = 0; i < N; i++) {
+		double window = 0.5 * (1 - cos(2 * M_PI * i / (N - 1)));
+		windowSum += window;
+		windowedInputLeft[i][0] = fftInputBufferLeft[i][0] * window;
+		windowedInputLeft[i][1] = 0.0;
+		windowedInputRight[i][0] = fftInputBufferRight[i][0] * window;
+		windowedInputRight[i][1] = 0.0;
 	}
 
-	double Harmonic1, Harmonic2; // 諧波振幅
-	double totalHarmonicEnergy; // 諧波總能量
+	// --- 2. 執行 FFT ---
+	fftw_execute_dft(fftPlanLeft, windowedInputLeft, fftOutputBufferLeft);
+	fftw_execute_dft(fftPlanRight, windowedInputRight, fftOutputBufferRight);
 
-	// 計算THD+N 左聲道
-	int energyPoint = leftTempWAVE_ANALYSIS.TotalEnergyPoint;
-	if (energyPoint * 2 < freqBins) {
-		Harmonic1 = leftSpectrumData[energyPoint * 2];
-		Harmonic2 = (energyPoint * 3 < freqBins) ? leftSpectrumData[energyPoint * 3] : 0;
+	fftw_free(windowedInputLeft);
+	fftw_free(windowedInputRight);
 
-		totalHarmonicEnergy = Harmonic1 * Harmonic1 + Harmonic2 * Harmonic2;
-		// 取得基波能量
-		double fundamentalEnergy = leftSpectrumData[energyPoint] * leftSpectrumData[energyPoint];
-		leftTempWAVE_ANALYSIS.fundamentalEnergy = fundamentalEnergy;
-		// 計算THD+N
-		leftTempWAVE_ANALYSIS.thd_N = sqrt(totalHarmonicEnergy / fundamentalEnergy);
+	// --- 3. 計算正確縮放的頻譜振幅 (Amplitude) ---
+	// (頻譜縮放) & #2 (窗函數補償)
+	// Coherent Gain of Hann window is sum of window samples divided by N
+	double coherentGain = windowSum / N;
+	double scalingFactor = 2.0 / (N * coherentGain);
 
-		// 轉換為分貝
-		leftTempWAVE_ANALYSIS.thd_N_dB = (leftTempWAVE_ANALYSIS.thd_N > 0)
-			? 20 * log10(leftTempWAVE_ANALYSIS.thd_N)
-			: -INFINITY; // 避免log(0)
-	}
-	else {
-		leftTempWAVE_ANALYSIS.thd_N_dB = 0;
-	}
-
-	// 計算THD+N 右聲道
-	energyPoint = RightTempWAVE_ANALYSIS.TotalEnergyPoint;
-	if (energyPoint * 2 < freqBins) {
-		Harmonic1 = rightSpectrumData[energyPoint * 2];
-		Harmonic2 = (energyPoint * 3 < freqBins) ? rightSpectrumData[energyPoint * 3] : 0;
-
-		totalHarmonicEnergy = Harmonic1 * Harmonic1 + Harmonic2 * Harmonic2;
-		// 取得基波能量
-		double fundamentalEnergy = rightSpectrumData[energyPoint] * rightSpectrumData[energyPoint];
-		RightTempWAVE_ANALYSIS.fundamentalEnergy = fundamentalEnergy;
-		// 計算THD+N
-		RightTempWAVE_ANALYSIS.thd_N = sqrt(totalHarmonicEnergy / fundamentalEnergy);
-
-		// 轉換為分貝
-		RightTempWAVE_ANALYSIS.thd_N_dB = (RightTempWAVE_ANALYSIS.thd_N > 0)
-			? 20 * log10(RightTempWAVE_ANALYSIS.thd_N)
-			: -INFINITY; // 避免log(0)
-	}
-	else {
-		RightTempWAVE_ANALYSIS.thd_N_dB = 0;
-	}
-
-	double totalEnergy = 0;
 	for (int i = 0; i < freqBins; ++i) {
-		double magnitude = leftSpectrumData[i];
-		totalEnergy += magnitude * magnitude; // 能量是振幅的平方
+		double rawMagnitudeL = sqrt(fftOutputBufferLeft[i][0] * fftOutputBufferLeft[i][0] + fftOutputBufferLeft[i][1] * fftOutputBufferLeft[i][1]);
+		double rawMagnitudeR = sqrt(fftOutputBufferRight[i][0] * fftOutputBufferRight[i][0] + fftOutputBufferRight[i][1] * fftOutputBufferRight[i][1]);
+
+		// 對於 DC (i=0) 和 Nyquist (如果 N 是偶數，在 i=N/2) 分量，不乘以 2
+		if (i == 0) {
+			leftSpectrumData[i] = rawMagnitudeL / (N * coherentGain);
+			rightSpectrumData[i] = rawMagnitudeR / (N * coherentGain);
+		}
+		else {
+			leftSpectrumData[i] = rawMagnitudeL * scalingFactor;
+			rightSpectrumData[i] = rawMagnitudeR * scalingFactor;
+		}
 	}
-	double volume_dB = 10 * log10(totalEnergy);
+
+	// --- 左聲道 ---
+	auto& leftAnalysis = mWAVE_PARM.bMuteTest ? mWAVE_PARM.leftMuteWAVE_ANALYSIS : mWAVE_PARM.leftWAVE_ANALYSIS;
+	{
+		// 4a. 尋找基頻 (Fundamental) 的最高點
+		double maxAmplitude = 0.0;
+		int fundamentalBin = 0;
+		for (int i = 2; i < freqBins; ++i) { 
+			if (leftSpectrumData[i] > maxAmplitude) {
+				maxAmplitude = leftSpectrumData[i];
+				fundamentalBin = i;
+			}
+		}
+		leftAnalysis.TotalEnergyPoint = fundamentalBin;
+
+		// -60 dBFS 是一個合理的閾值，代表訊號強度低於最大值的 0.1%
+		double fullScale = 32767.0;
+		if (maxAmplitude < fullScale * 0.001) { // ~ -60 dBFS
+			leftAnalysis.thd_N_dB = 0; // 使用 0 dB 表示錯誤/無效訊號
+			leftAnalysis.TotalEnergyPoint = 0;
+		}
+		else {
+			// 4c. 修正點 #3 & #4: 使用正確的能量計算 THD+N
+			double totalEnergy = 0;
+			double fundamentalEnergy = 0;
+			const double sampleRate = 44100.0;
+
+			double bandwidthHz = GetWaveParm().fundamentalBandwidthHz; // 假設 config 被存在 WAVE_PARM
+			if (bandwidthHz <= 0) bandwidthHz = 100.0;
+			double freqPerBin = sampleRate / N;
+			int peakWidth = static_cast<int>(round(bandwidthHz / freqPerBin));
+
+			// 計算總能量
+			for (int i = 2; i < freqBins; ++i) {
+				totalEnergy += leftSpectrumData[i] * leftSpectrumData[i];
+			}
+
+			// 整合基頻能量
+			for (int i = -peakWidth; i <= peakWidth; ++i) {
+				int bin = fundamentalBin + i;
+				if (bin > 1 && bin < freqBins) {
+					fundamentalEnergy += leftSpectrumData[bin] * leftSpectrumData[bin];
+				}
+			}
+
+			leftAnalysis.TotalEnergy = totalEnergy;
+			leftAnalysis.fundamentalEnergy = fundamentalEnergy;
+
+			// 計算 THD+N
+			double noiseAndDistortionEnergy = totalEnergy - fundamentalEnergy;
+			if (fundamentalEnergy > 0 && noiseAndDistortionEnergy > 0) {
+				double thd_n_ratio = sqrt(noiseAndDistortionEnergy / fundamentalEnergy);
+				leftAnalysis.thd_N_dB = 20 * log10(thd_n_ratio);
+			}
+			else {
+				leftAnalysis.thd_N_dB = -INFINITY;
+			}
+		}
+	}
+
+	// --- 5. 針對右聲道進行分析---
+	auto& rightAnalysis = mWAVE_PARM.bMuteTest ? mWAVE_PARM.rightMuteWAVE_ANALYSIS : mWAVE_PARM.rightWAVE_ANALYSIS;
+	{
+		double maxAmplitude = 0.0;
+		int fundamentalBin = 0;
+		for (int i = 2; i < freqBins; ++i) {
+			if (rightSpectrumData[i] > maxAmplitude) {
+				maxAmplitude = rightSpectrumData[i];
+				fundamentalBin = i;
+			}
+		}
+		rightAnalysis.TotalEnergyPoint = fundamentalBin;
+
+		double fullScale = 32767.0;
+		if (maxAmplitude < fullScale * 0.001) { // ~ -60 dBFS
+			rightAnalysis.thd_N_dB = 0;
+			rightAnalysis.TotalEnergyPoint = 0;
+		}
+		else {
+			double totalEnergy = 0;
+			double fundamentalEnergy = 0;
+
+			const double sampleRate = 44100.0;
+			double bandwidthHz = GetWaveParm().fundamentalBandwidthHz; // 假設 config 被存在 WAVE_PARM
+			if (bandwidthHz <= 0) bandwidthHz = 100.0;
+			double freqPerBin = sampleRate / N;
+			int peakWidth = static_cast<int>(round(bandwidthHz / freqPerBin));
+
+			for (int i = 2; i < freqBins; ++i) {
+				totalEnergy += rightSpectrumData[i] * rightSpectrumData[i];
+			}
+
+			for (int i = -peakWidth; i <= peakWidth; ++i) {
+				int bin = fundamentalBin + i;
+				if (bin > 1 && bin < freqBins) {
+					fundamentalEnergy += rightSpectrumData[bin] * rightSpectrumData[bin];
+				}
+			}
+
+			rightAnalysis.TotalEnergy = totalEnergy;
+			rightAnalysis.fundamentalEnergy = fundamentalEnergy;
+
+			double noiseAndDistortionEnergy = totalEnergy - fundamentalEnergy;
+			if (fundamentalEnergy > 0 && noiseAndDistortionEnergy > 0) {
+				double thd_n_ratio = sqrt(noiseAndDistortionEnergy / fundamentalEnergy);
+				rightAnalysis.thd_N_dB = 20 * log10(thd_n_ratio);
+			}
+			else {
+				rightAnalysis.thd_N_dB = -INFINITY;
+			}
+		}
+	}
 }
 // 播放WAV檔案
 bool ASAudio::PlayWavFile(bool AutoClose) {
@@ -1131,4 +1200,49 @@ bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
 	}
 	strMacroResult = "LOG:ERROR_AUDIO_ENUM_NOT_FIND#";
 	return false;
+}
+void ASAudio::ExecuteFft() {
+	fftw_execute(fftPlanLeft);
+	fftw_execute(fftPlanRight);
+}
+MMRESULT ASAudio::StartRecordingOnly() {
+	// 設定音訊格式
+	WAVEFORMATEX format{};
+	format.wFormatTag = WAVE_FORMAT_PCM;
+	format.nChannels = 2;
+	format.nSamplesPerSec = 44100;
+	format.wBitsPerSample = 16;
+	format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
+	format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+	format.cbSize = 0;
+
+	MMRESULT result;
+	// 清除音訊緩衝區
+	memset(mWAVE_PARM.WAVE_DATA.audioBuffer, 0, BUFFER_SIZE * sizeof(short) * 2);
+
+	// 開啟音訊輸入裝置
+	int iDevIndex = GetWaveInDevice(mWAVE_PARM.WaveInDev);
+	if (iDevIndex == -1)
+	{
+		data.errorcode = ERROR_CODE_NOT_FIND_WAVEIN_DEV;
+		return ERROR_CODE_NOT_FIND_WAVEIN_DEV;
+	}
+
+	// 直接開啟並開始錄音，完全不呼叫播放函式
+	mWAVE_PARM.firstBufferDiscarded = false;
+	result = waveInOpen(&hWaveIn, iDevIndex, &format, (DWORD_PTR)WaveInProc, (DWORD_PTR)this, CALLBACK_FUNCTION | WAVE_FORMAT_DIRECT);
+	if (result == MMSYSERR_NOERROR) {
+		Sleep(100);
+		bFirstWaveInFlag = true;
+		waveHdr.lpData = (LPSTR)mWAVE_PARM.WAVE_DATA.audioBuffer;
+		waveHdr.dwBufferLength = BUFFER_SIZE * sizeof(short) * 2;
+		waveHdr.dwBytesRecorded = 0;
+		waveHdr.dwUser = 0;
+		waveHdr.dwFlags = 0;
+		waveHdr.dwLoops = 0;
+		waveInPrepareHeader(hWaveIn, &waveHdr, sizeof(WAVEHDR));
+		waveInAddBuffer(hWaveIn, &waveHdr, sizeof(WAVEHDR));
+		waveInStart(hWaveIn);
+	}
+	return result;
 }

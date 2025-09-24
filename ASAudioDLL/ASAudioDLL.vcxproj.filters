@@ -42,6 +42,9 @@
     <ClInclude Include="ASAudio.h">
       <Filter>標頭檔</Filter>
     </ClInclude>
+    <ClInclude Include="FailureDialog.h">
+      <Filter>標頭檔</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -62,9 +65,15 @@
     <ClCompile Include="ASAudio.cpp">
       <Filter>來源檔案</Filter>
     </ClCompile>
+    <ClCompile Include="FailureDialog.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Resource.rc">
+      <Filter>資源檔</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="FailureDialog.rc">
       <Filter>資源檔</Filter>
     </ResourceCompile>
   </ItemGroup>

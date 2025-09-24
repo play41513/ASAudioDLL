@@ -2,7 +2,21 @@
 // Microsoft Visual C++ generated include file.
 // Used by Resource.rc
 
-// 下一個新增物件的預設值
+#define IDD_FAIL_DIALOG 101
+
+#define IDC_RETRY_BUTTON            1101
+#define IDC_WAVEFORM_LEFT           1103
+#define IDC_WAVEFORM_RIGHT          1104
+#define IDC_SPECTRUM_LEFT           1105
+#define IDC_SPECTRUM_RIGHT          1106
+#define IDC_SCROLL_WAVE_LEFT        1107
+#define IDC_SCROLL_WAVE_RIGHT       1108
+
+#define IDC_RESULT_GROUP            1109
+#define IDC_INFO_DEVICES            1110
+#define IDC_INFO_FREQ               1111 
+#define IDC_INFO_THDN               1112
+#define IDC_INFO_DB                 1113
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS

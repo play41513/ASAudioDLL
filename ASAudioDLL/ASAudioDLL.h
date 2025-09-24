@@ -38,10 +38,10 @@ extern "C" ASAUDIODLL_API BSTR fft_get_error_msg(int error_code);
 extern "C" ASAUDIODLL_API void fft_set_system_sound_mute(bool Mute);
 
 // 獲取 THD+N 和 dB 值
-extern "C" ASAUDIODLL_API void fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq);
+extern "C" ASAUDIODLL_API void fft_get_thd_n_db(double* thd_n, double* FundamentalLevel_dBFS, double* freq);
 
 // 獲取靜音時的 dB 值
-extern "C" ASAUDIODLL_API void fft_get_mute_db(double* dB_ValueMax);
+extern "C" ASAUDIODLL_API void fft_get_mute_db(double* FundamentalLevel_dBFS);
 
 // 獲取信噪比 (SNR)
 extern "C" ASAUDIODLL_API void fft_get_snr(double* snr);

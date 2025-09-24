@@ -152,6 +152,7 @@
   <ItemGroup>
     <ClInclude Include="ASAudio.h" />
     <ClInclude Include="ConfigManager.h" />
+    <ClInclude Include="FailureDialog.h" />
     <ClInclude Include="fftw3.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="ASAudioDLL.h" />
@@ -165,6 +166,7 @@
     <ClCompile Include="AudioManager.cpp" />
     <ClCompile Include="ConfigManager.cpp" />
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="FailureDialog.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
@@ -174,6 +176,7 @@
     <ClCompile Include="ASAudioDLL.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="FailureDialog.rc" />
     <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

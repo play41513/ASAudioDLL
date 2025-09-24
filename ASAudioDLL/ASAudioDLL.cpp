@@ -2,6 +2,8 @@
 #include "AudioManager.h"
 #include "ASAudioDLL.h"
 #include "ASAudio.h"
+#include "FailureDialog.h" 
+#include "resource.h"     
 #include <sstream>
 #include <fstream>
 #include <algorithm>
@@ -25,8 +27,10 @@ short rightAudioData[BUFFER_SIZE] = { 0 };
 double leftSpectrumData[BUFFER_SIZE] = { 0 };
 double rightSpectrumData[BUFFER_SIZE] = { 0 };
 double thd_n[2] = { 0 };
-double dB_ValueMax[2] = { 0 };
+double FundamentalLevel_dBFS[2] = { 0 };
 double freq[2] = { 0 };
+
+extern HINSTANCE g_hInst;
 
 extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* filePath)
 {
@@ -51,6 +55,7 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 				configs.waveOutDelay
 			);
 			audioInstance.GetWaveParm().AudioFile = configs.WAVFilePath_w;
+			audioInstance.GetWaveParm().fundamentalBandwidthHz = configs.fundamentalBandwidthHz;
 
 			// 使用新的 AudioManager 執行測試流程
 			AudioManager audioManager;
@@ -60,9 +65,31 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 
 		bool hasError = (finalResult.find("ERROR") != std::string::npos);
 		if (hasError && ownerHwnd != NULL) {
+			/*
 			std::string strTemp = "Failed: " + finalResult;
 			std::wstring wErrorMsg = audioInstance.charToWstring(strTemp.c_str()) + L"\n\n" + audioInstance.GetLog() + L"\n\n是否要重測？(Retry ?)";
 			if (MessageBoxW(ownerHwnd, wErrorMsg.c_str(), L"測試失敗", MB_YESNO | MB_ICONERROR) == IDYES) {
+				shouldRetry = true;
+			}*/
+			std::string strTemp = "失敗 (Failed): " + finalResult;
+			std::wstring wErrorMsg = audioInstance.charToWstring(strTemp.c_str()) + L"\n" + audioInstance.GetLog();
+
+			// 填充AudioData ---
+			AudioData data;
+			data.leftAudioData = leftAudioData;
+			data.rightAudioData = rightAudioData;
+			data.leftSpectrumData = leftSpectrumData;
+			data.rightSpectrumData = rightSpectrumData;
+			data.bufferSize = BUFFER_SIZE;
+			data.errorMessage = wErrorMsg.c_str();
+
+			// 傳入設定和結果的指標
+			data.config = &configs;
+			data.thd_n_result = thd_n;
+			data.FundamentalLevel_dBFS_result = FundamentalLevel_dBFS;
+			data.freq_result = freq;
+
+			if (ShowFailureDialog(g_hInst, ownerHwnd, &data)) {
 				shouldRetry = true;
 			}
 		}
@@ -139,17 +166,39 @@ void __cdecl fft_set_system_sound_mute(bool Mute)
 	SystemParametersInfo(SPI_SETSOUNDSENTRY, flag, NULL, SPIF_SENDCHANGE | SPIF_UPDATEINIFILE);
 }
 
-void __cdecl fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq)
+void __cdecl fft_get_thd_n_db(double* thd_n, double* FundamentalLevel_dBFS, double* freq)
 {
 	auto& parm = ASAudio::GetInstance().GetWaveParm();
 	thd_n[0] = parm.leftWAVE_ANALYSIS.thd_N_dB;
 	thd_n[1] = parm.rightWAVE_ANALYSIS.thd_N_dB;
 
-	dB_ValueMax[0] = 10 * log10(parm.leftWAVE_ANALYSIS.fundamentalEnergy);
-	dB_ValueMax[1] = 10 * log10(parm.rightWAVE_ANALYSIS.fundamentalEnergy);
+	// 1. 從能量（振幅的平方）開根號，還原回振幅
+	double leftAmplitude = sqrt(parm.leftWAVE_ANALYSIS.fundamentalEnergy);
+	double rightAmplitude = sqrt(parm.rightWAVE_ANALYSIS.fundamentalEnergy);
 
-	freq[0] = parm.leftWAVE_ANALYSIS.TotalEnergyPoint * 20;
-	freq[1] = parm.rightWAVE_ANALYSIS.TotalEnergyPoint * 20;
+	// 2. 以 16-bit 的最大值 32767.0 作為參考，計算 dBFS
+	//    使用 20 * log10() 來轉換振幅
+	double fullScaleReference = 32767.0;
+
+	if (leftAmplitude > 0) {
+		FundamentalLevel_dBFS[0] = 20 * log10(leftAmplitude / fullScaleReference);
+	}
+	else {
+		FundamentalLevel_dBFS[0] = -INFINITY; // 靜音
+	}
+
+	if (rightAmplitude > 0) {
+		FundamentalLevel_dBFS[1] = 20 * log10(rightAmplitude / fullScaleReference);
+	}
+	else {
+		FundamentalLevel_dBFS[1] = -INFINITY; // 靜音
+	}
+
+	// 頻率
+	const double sampleRate = 44100.0;
+	const int N = BUFFER_SIZE;
+	freq[0] = parm.leftWAVE_ANALYSIS.TotalEnergyPoint * (sampleRate / N);
+	freq[1] = parm.rightWAVE_ANALYSIS.TotalEnergyPoint * (sampleRate / N);
 	/*
 	THD+N的dB值範圍
 	專業音響設備：
@@ -172,11 +221,11 @@ void __cdecl fft_get_thd_n_db(double* thd_n, double* dB_ValueMax, double* freq)
 	*/
 }
 
-void __cdecl fft_get_mute_db(double* dB_ValueMax)
+void __cdecl fft_get_mute_db(double* FundamentalLevel_dBFS)
 {
 	auto& parm = ASAudio::GetInstance().GetWaveParm();
-	dB_ValueMax[0] = 10 * log10(parm.leftMuteWAVE_ANALYSIS.TotalEnergy);
-	dB_ValueMax[1] = 10 * log10(parm.rightMuteWAVE_ANALYSIS.TotalEnergy);
+	FundamentalLevel_dBFS[0] = 10 * log10(parm.leftMuteWAVE_ANALYSIS.TotalEnergy);
+	FundamentalLevel_dBFS[1] = 10 * log10(parm.rightMuteWAVE_ANALYSIS.TotalEnergy);
 	/*
 	靜音測試的最大dB值範圍
 	專業音響設備：
@@ -192,18 +241,33 @@ void __cdecl fft_get_mute_db(double* dB_ValueMax)
 
 void __cdecl fft_get_snr(double* snr)
 {
-	// 計算SNR
 	auto& parm = ASAudio::GetInstance().GetWaveParm();
-	snr[0] = (parm.leftMuteWAVE_ANALYSIS.TotalEnergy > 0) ? (parm.leftWAVE_ANALYSIS.fundamentalEnergy / parm.leftMuteWAVE_ANALYSIS.TotalEnergy) : 0;
-	snr[1] = (parm.rightMuteWAVE_ANALYSIS.TotalEnergy > 0) ? (parm.rightWAVE_ANALYSIS.fundamentalEnergy / parm.rightMuteWAVE_ANALYSIS.TotalEnergy) : 0;
 
-	// 轉換為分貝，這裡的SNR是能量或功率的比值，所以用10 * log10
-	double leftSNR_dB = (snr[0] > 0) ? (10 * log10(snr[0])) : -INFINITY;
-	double rightSNR_dB = (snr[1] > 0) ? (10 * log10(snr[1])) : -INFINITY;
+	// 計算能量比
+	double left_snr_ratio = (parm.leftMuteWAVE_ANALYSIS.TotalEnergy > 0) ? (parm.leftWAVE_ANALYSIS.fundamentalEnergy / parm.leftMuteWAVE_ANALYSIS.TotalEnergy) : 0;
+	double right_snr_ratio = (parm.rightMuteWAVE_ANALYSIS.TotalEnergy > 0) ? (parm.rightWAVE_ANALYSIS.fundamentalEnergy / parm.rightMuteWAVE_ANALYSIS.TotalEnergy) : 0;
 
-	// 更新 SNR 值
-	snr[0] = leftSNR_dB;
-	snr[1] = rightSNR_dB;
+	// 處理噪聲為零的極端情況 ---
+	const double MAX_SNR_CAP = 144.0; // 設定一個非常高的 SNR 上限 (dB)，代表極好的結果
+
+	if (left_snr_ratio > 0) {
+		snr[0] = 10 * log10(left_snr_ratio);
+	}
+	else {
+		// 如果能量比為 0 (因為噪聲為 0)，直接賦予上限值
+		snr[0] = MAX_SNR_CAP;
+	}
+
+	if (right_snr_ratio > 0) {
+		snr[1] = 10 * log10(right_snr_ratio);
+	}
+	else {
+		snr[1] = MAX_SNR_CAP;
+	}
+
+	// 可以選擇性地對正常計算出的值也設定上限，避免出現過大的數字
+	if (snr[0] > MAX_SNR_CAP) snr[0] = MAX_SNR_CAP;
+	if (snr[1] > MAX_SNR_CAP) snr[1] = MAX_SNR_CAP;
 	/*
 	SNR 測試的範圍
 	專業音響設備：
@@ -280,10 +344,15 @@ int __cdecl fft_mute_exe(bool MuteWaveOut, bool MuteWaveIn,
 	auto& parm = ASAudio::GetInstance().GetWaveParm();
 	parm.bMuteTest = true;
 	MMRESULT result = MMSYSERR_NOERROR;
+
+	if (MuteWaveOut) {
+		// 確保任何可能在播放的聲音都停止
+		ASAudio::GetInstance().stopPlayback();
+	}
+
 	if (MuteWaveIn)
 		ASAudio::GetInstance().SetMicMute(true);
-	if (MuteWaveOut)
-		result = ASAudio::GetInstance().SetSpeakerSystemVolume();
+	result = ASAudio::GetInstance().StartRecordingOnly();
 
 	if (result != MMSYSERR_NOERROR)
 		return result;
@@ -299,6 +368,8 @@ int __cdecl fft_mute_exe(bool MuteWaveOut, bool MuteWaveIn,
 
 	ASAudio::GetInstance().StopRecording();// 停止錄音
 	ASAudio::GetInstance().stopPlayback(); // 停止播放檔
+
+	ASAudio::GetInstance().ExecuteFft();
 
 	fftw_complex* leftSpectrum;
 	fftw_complex* rightSpectrum;

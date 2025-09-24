@@ -66,6 +66,7 @@ struct WAVE_PARM {
     int frequencyR;
     int WaveOutDelay;
     std::wstring AudioFile;
+    double fundamentalBandwidthHz;
 
     WAVE_DATA WAVE_DATA;
     WAVE_ANALYSIS leftWAVE_ANALYSIS;
@@ -87,7 +88,8 @@ struct WAVE_PARM {
         WaveOutDelay(0),
         isRecordingFinished(false),
         bMuteTest(false),
-        firstBufferDiscarded(false)
+        firstBufferDiscarded(false),
+        fundamentalBandwidthHz(100.0)
     {
 
     }
@@ -121,6 +123,7 @@ public:
     bool PlayWavFile(bool AutoClose);
     void StopPlayingWavFile();
     MMRESULT StartRecordingAndDrawSpectrum();
+    MMRESULT StartRecordingOnly();
     MMRESULT StopRecording();
     DWORD SetMicSystemVolume();
     DWORD SetSpeakerSystemVolume() const;
@@ -148,6 +151,7 @@ public:
 
     const fftw_complex* GetLeftSpectrumPtr() const;
     const fftw_complex* GetRightSpectrumPtr() const;
+    void ExecuteFft();
 
 private:
     ASAudio();

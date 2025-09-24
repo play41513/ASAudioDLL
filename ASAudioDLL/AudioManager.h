@@ -29,6 +29,7 @@ private:
 
     // 執行 THD+N、dB、頻率等核心音訊分析測試
     bool RunAudioTest(const Config& config);
+    bool RunSnrTest(const Config& config);
     // 執行 WAV 檔案的播放與停止
     bool RunWavPlayback(const Config& config);
     // 執行音訊迴路 (Loopback) 測試
@@ -41,17 +42,4 @@ private:
 
     // 用於儲存整個測試流程最終結果的字串
     std::string resultString;
-
-    // 音訊資料緩衝區
-    short leftAudioData[BUFFER_SIZE];
-    short rightAudioData[BUFFER_SIZE];
-
-    // 頻譜資料緩衝區
-    double leftSpectrumData[BUFFER_SIZE];
-    double rightSpectrumData[BUFFER_SIZE];
-
-    // 測試結果
-    double thd_n[2];        // 儲存 THD+N 結果 (L/R)
-    double dB_ValueMax[2];  // 儲存最大音量 (dB) 結果 (L/R)
-    double freq[2];         // 儲存頻率結果 (L/R)
 };
