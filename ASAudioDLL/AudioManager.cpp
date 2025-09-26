@@ -119,6 +119,8 @@ bool AudioManager::RunAudioTest(const Config& config) {
     fft_thd_n_exe(leftAudioData, rightAudioData, leftSpectrumData, rightSpectrumData);
     fft_get_thd_n_db(thd_n, FundamentalLevel_dBFS, freq);
 
+    double levelDifference = std::abs(FundamentalLevel_dBFS[0] - FundamentalLevel_dBFS[1]);
+
     // 根據設定檔的標準，判斷測試結果
     if (thd_n[0] > config.thd_n || thd_n[1] > config.thd_n) {
         std::stringstream ss;
@@ -129,6 +131,12 @@ bool AudioManager::RunAudioTest(const Config& config) {
     else if (FundamentalLevel_dBFS[0] < config.FundamentalLevel_dBFS || FundamentalLevel_dBFS[1] < config.FundamentalLevel_dBFS) {
         std::stringstream ss;
         ss << "LOG:ERROR_AUDIO_FUNDAMENTAL_LEVEL_VALUE_" << "L_" << (int)FundamentalLevel_dBFS[0] << "_R_" << (int)FundamentalLevel_dBFS[1] << "#";
+        resultString = ss.str();
+        return false;
+    }
+    else if (levelDifference > config.maxLevelDifference_dB) {
+        std::stringstream ss;
+        ss << "LOG:ERROR_AUDIO_LEVEL_IMBALANCE_" << "L_" << (int)FundamentalLevel_dBFS[0] << "_R_" << (int)FundamentalLevel_dBFS[1] << "_DIFF_" << levelDifference << "#";
         resultString = ss.str();
         return false;
     }

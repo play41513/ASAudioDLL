@@ -29,6 +29,7 @@ struct Config {
     std::string WAVFilePath;
     std::wstring WAVFilePath_w;
     double fundamentalBandwidthHz;
+    double maxLevelDifference_dB; //最大音量差異容許值 (dB)
 
     // [AudioLoopBack]
     bool AudioLoopBackEnable;

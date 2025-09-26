@@ -302,11 +302,19 @@ int __cdecl fft_thd_n_exe(short* leftAudioData, short* rightAudioData, double* l
 	if (result != MMSYSERR_NOERROR)
 		return result;
 
-	std::unique_lock<std::mutex> lock(parm.recordingMutex);
-	// 等待直到錄音完成
-	//while簡寫 當isRecordingFinished == true 跳出
-	parm.recordingFinishedCV.wait(lock, [&] { return parm.isRecordingFinished;  });
-	parm.isRecordingFinished = false;
+	WAVE_PARM::RecordingResult waitResult = ASAudio::GetInstance().WaitForRecording(10);
+
+	if (waitResult != WAVE_PARM::RecordingResult::Success) {
+		ASAudio::GetInstance().StopRecording(); 
+		ASAudio::GetInstance().stopPlayback();
+
+		if (waitResult == WAVE_PARM::RecordingResult::Timeout) {
+			return ERROR_CODE_UNSET_PARAMETER; 
+		}
+		else if (waitResult == WAVE_PARM::RecordingResult::DeviceError) {
+			return ERROR_CODE_UNSET_PARAMETER; 
+		}
+	}
 
 	ASAudio::GetInstance().StopRecording(); // 停止錄音
 	ASAudio::GetInstance().stopPlayback(); // 停止播放檔
@@ -355,16 +363,30 @@ int __cdecl fft_mute_exe(bool MuteWaveOut, bool MuteWaveIn,
 	result = ASAudio::GetInstance().StartRecordingOnly();
 
 	if (result != MMSYSERR_NOERROR)
+	{
+		parm.bMuteTest = false;
+		if (MuteWaveIn) 
+			ASAudio::GetInstance().SetMicMute(false);
 		return result;
-	result = ASAudio::GetInstance().StartRecordingAndDrawSpectrum();
-	if (result != MMSYSERR_NOERROR)
-		return result;
+	}
 
-	std::unique_lock<std::mutex> lock(parm.recordingMutex);
-	// 等待直到錄音完成
-	//while簡寫 當isRecordingFinished == true 跳出
-	parm.recordingFinishedCV.wait(lock, [&] { return parm.isRecordingFinished;  });
-	parm.isRecordingFinished = false;
+	WAVE_PARM::RecordingResult waitResult = ASAudio::GetInstance().WaitForRecording(10);
+	if (waitResult != WAVE_PARM::RecordingResult::Success) {
+		ASAudio::GetInstance().StopRecording(); 
+		ASAudio::GetInstance().stopPlayback();
+
+		// Restore state even on error
+		parm.bMuteTest = false;
+		if (MuteWaveIn) ASAudio::GetInstance().SetMicMute(false);
+		if (MuteWaveOut) ASAudio::GetInstance().SetSpeakerSystemVolume();
+
+		if (waitResult == WAVE_PARM::RecordingResult::Timeout) {
+			return ERROR_CODE_UNSET_PARAMETER; 
+		}
+		else if (waitResult == WAVE_PARM::RecordingResult::DeviceError) {
+			return ERROR_CODE_UNSET_PARAMETER; 
+		}
+	}
 
 	ASAudio::GetInstance().StopRecording();// 停止錄音
 	ASAudio::GetInstance().stopPlayback(); // 停止播放檔

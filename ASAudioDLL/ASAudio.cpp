@@ -138,6 +138,35 @@ void ASAudio::AppendLog(const std::wstring& message) {
 const std::wstring& ASAudio::GetLog() const {
 	return allContent;
 }
+WAVE_PARM::RecordingResult ASAudio::WaitForRecording(int timeoutSeconds) {
+	std::unique_lock<std::mutex> lock(mWAVE_PARM.recordingMutex);
+
+	// 在每次等待之前，重置狀態旗標
+	mWAVE_PARM.isRecordingFinished = false;
+	mWAVE_PARM.deviceError = false;
+
+	// 使用 wait_for 等待，它會在指定時間後自動返回
+	// 第二個參數是一個 lambda 函式，用於防止 "偽喚醒" (spurious wakeups)
+	if (!mWAVE_PARM.recordingFinishedCV.wait_for(lock, std::chrono::seconds(timeoutSeconds), [&] {
+		return mWAVE_PARM.isRecordingFinished;
+		}))
+	{
+		// 如果 wait_for 返回 false，代表是「逾時」而不是被 notify 喚醒
+		mWAVE_PARM.lastRecordingResult = WAVE_PARM::RecordingResult::Timeout;
+		return WAVE_PARM::RecordingResult::Timeout;
+	}
+
+	// 程式執行到這裡，代表是被 notify 喚醒。
+	// 檢查是「正常完成」還是「裝置錯誤」造成的喚醒。
+	if (mWAVE_PARM.deviceError) {
+		mWAVE_PARM.lastRecordingResult = WAVE_PARM::RecordingResult::DeviceError;
+		return WAVE_PARM::RecordingResult::DeviceError;
+	}
+
+	// 如果沒有逾時，也沒有裝置錯誤，那代表錄音成功完成。
+	mWAVE_PARM.lastRecordingResult = WAVE_PARM::RecordingResult::Success;
+	return WAVE_PARM::RecordingResult::Success;
+}
 
 void ASAudio::SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumData)
 {
@@ -202,9 +231,11 @@ void ASAudio::SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumDa
 
 		// -60 dBFS 是一個合理的閾值，代表訊號強度低於最大值的 0.1%
 		double fullScale = 32767.0;
-		if (maxAmplitude < fullScale * 0.001) { // ~ -60 dBFS
+		if (!mWAVE_PARM.bMuteTest && (maxAmplitude < fullScale * 0.001)) { // ~ -60 dBFS
 			leftAnalysis.thd_N_dB = 0; // 使用 0 dB 表示錯誤/無效訊號
 			leftAnalysis.TotalEnergyPoint = 0;
+			leftAnalysis.TotalEnergy = 0; // 最好也將能量歸零
+			leftAnalysis.fundamentalEnergy = 0;
 		}
 		else {
 			// 4c. 修正點 #3 & #4: 使用正確的能量計算 THD+N
@@ -259,9 +290,11 @@ void ASAudio::SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumDa
 		rightAnalysis.TotalEnergyPoint = fundamentalBin;
 
 		double fullScale = 32767.0;
-		if (maxAmplitude < fullScale * 0.001) { // ~ -60 dBFS
+		if (!mWAVE_PARM.bMuteTest && (maxAmplitude < fullScale * 0.001)) { // ~ -60 dBFS
 			rightAnalysis.thd_N_dB = 0;
 			rightAnalysis.TotalEnergyPoint = 0;
+			rightAnalysis.TotalEnergy = 0;
+			rightAnalysis.fundamentalEnergy = 0;
 		}
 		else {
 			double totalEnergy = 0;
@@ -461,28 +494,42 @@ MMRESULT ASAudio::StopRecording() {
 
 // 錄音回呼函式
 void CALLBACK ASAudio::WaveInProc(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2) {
-	if (uMsg == MM_WIM_DATA) {
-		// 取得目前 ASAudio 物件的指標
-		ASAudio* asAudio = reinterpret_cast<ASAudio*>(dwInstance);
-		WAVEHDR* waveHdr = reinterpret_cast<WAVEHDR*>(dwParam1);
 
-		if (waveHdr->dwBytesRecorded > 0) {
-			// 使用 asAudio 來存取成員變數 bFirstWaveInFlag
-			if (asAudio->bFirstWaveInFlag)
-			{
-				// 使用 asAudio 來存取並修改成員變數 bFirstWaveInFlag
-				asAudio->bFirstWaveInFlag = false;
+	ASAudio* asAudio = reinterpret_cast<ASAudio*>(dwInstance);
+	if (!asAudio) return;
+	switch (uMsg) {
+		case MM_WIM_DATA: 
+		{
+			WAVEHDR* waveHdr = reinterpret_cast<WAVEHDR*>(dwParam1);
+			if (waveHdr->dwBytesRecorded > 0) {
+				// 使用 asAudio 來存取成員變數 bFirstWaveInFlag
+				if (asAudio->bFirstWaveInFlag)
+				{
+					// 使用 asAudio 來存取並修改成員變數 bFirstWaveInFlag
+					asAudio->bFirstWaveInFlag = false;
 
-				// 重新提交緩衝區，以丟棄第一個緩衝區
-				waveInUnprepareHeader(hwi, waveHdr, sizeof(WAVEHDR));
-				waveInPrepareHeader(hwi, waveHdr, sizeof(WAVEHDR));
-				waveInAddBuffer(hwi, waveHdr, sizeof(WAVEHDR));
+					// 重新提交緩衝區，以丟棄第一個緩衝區
+					waveInUnprepareHeader(hwi, waveHdr, sizeof(WAVEHDR));
+					waveInPrepareHeader(hwi, waveHdr, sizeof(WAVEHDR));
+					waveInAddBuffer(hwi, waveHdr, sizeof(WAVEHDR));
+				}
+				else
+				{
+					// 呼叫成員函式來處理
+					asAudio->ProcessAudioBuffer();
+				}
 			}
-			else
-			{
-				// 呼叫成員函式來處理
-				asAudio->ProcessAudioBuffer();
-			}
+			break;
+		}
+		case MM_WIM_CLOSE:
+		{
+			// 裝置已被關閉或拔除
+			// 設定錯誤旗標並立即通知等待中的主執行緒
+			std::lock_guard<std::mutex> lock(asAudio->mWAVE_PARM.recordingMutex);
+			asAudio->mWAVE_PARM.deviceError = true;
+			asAudio->mWAVE_PARM.isRecordingFinished = true; // 將其標記為 "完成" 以便喚醒 wait
+			asAudio->mWAVE_PARM.recordingFinishedCV.notify_one(); // 立即喚醒
+			break;
 		}
 	}
 }
@@ -531,58 +578,63 @@ DWORD ASAudio::SetMicSystemVolume()
 	MIXERLINECONTROLS mxlc;
 	MIXERCONTROL mxc;
 
-	//遍歷所有混音器，找到錄音相關的混音器，並設定裝置ID
+	//遍歷所有混音器裝置
 	for (int deviceID = 0; true; deviceID++)
 	{
-		//開啟指定混音器，deviceID為混音器ID
+		// 1. 開啟指定混音器
 		rc = mixerOpen(&hMixer, deviceID, 0, 0, MIXER_OBJECTF_MIXER);
-		if (rc != MMSYSERR_NOERROR)
+		if (rc != MMSYSERR_NOERROR) {
+			// 如果連裝置都打不開了，代表已經找完所有裝置，結束迴圈
 			break;
+		}
+
+		// 2. 指定要找的是錄音線路
 		ZeroMemory(&mxl, sizeof(MIXERLINE));
 		mxl.cbStruct = sizeof(MIXERLINE);
-		//指定要查詢的線路類型
-		//線路類型為目標的為MIXERLINE_COMPONENTTYPE_DST_SPEAKERS
-		//線路類型為來源的為MIXERLINE_COMPONENTTYPE_DST_WAVEIN
 		mxl.dwComponentType = MIXERLINE_COMPONENTTYPE_DST_WAVEIN;
 		rc = mixerGetLineInfo((HMIXEROBJ)hMixer, &mxl, MIXER_GETLINEINFOF_COMPONENTTYPE);
-		if (rc != MMSYSERR_NOERROR)
+		if (rc != MMSYSERR_NOERROR) {
+			// 如果這個裝置沒有錄音線路，就關閉它，然後檢查下一個
+			mixerClose(hMixer);
 			continue;
-		//取得混音器裝置所支援的音訊線路數量，並逐一檢查
+		}
+
+		// 3. 在這個錄音線路中，尋找麥克風來源
 		DWORD dwConnections = mxl.cConnections;
 		DWORD dwLineID = -1;
 		for (DWORD i = 0; i < dwConnections; i++)
 		{
 			mxl.dwSource = i;
-			//依據SourceID取得線路資訊
 			rc = mixerGetLineInfo((HMIXEROBJ)hMixer, &mxl, MIXER_OBJECTF_HMIXER | MIXER_GETLINEINFOF_SOURCE);
 			if (rc == MMSYSERR_NOERROR)
 			{
-				//如果該裝置是麥克風，則跳出
-				//MIXERLINE_COMPONENTTYPE_DST_SPEAKERS
-				//MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE
 				if (mxl.dwComponentType == MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE)
 				{
 					dwLineID = mxl.dwLineID;
-					break;
+					break; // 找到了麥克風，跳出這個小迴圈
 				}
 			}
 		}
-		if (dwLineID == -1)
+
+		// 如果在這個裝置上沒找到麥克風線路，就關閉它，然後檢查下一個
+		if (dwLineID == -1) {
+			mixerClose(hMixer);
 			continue;
+		}
+
+		// 4. 尋找音量控制器
 		ZeroMemory(&mxc, sizeof(MIXERCONTROL));
 		mxc.cbStruct = sizeof(mxc);
 		ZeroMemory(&mxlc, sizeof(MIXERLINECONTROLS));
-
-		//指定要查詢的控制項
 		mxlc.cbStruct = sizeof(mxlc);
 		mxlc.dwLineID = dwLineID;
 		mxlc.dwControlType = MIXERCONTROL_CONTROLTYPE_VOLUME;
 		mxlc.cControls = 1;
 		mxlc.pamxctrl = &mxc;
 		mxlc.cbmxctrl = sizeof(mxc);
-
-		//取得音量控制資訊
 		rc = mixerGetLineControls((HMIXEROBJ)hMixer, &mxlc, MIXER_GETLINECONTROLSF_ONEBYTYPE);
+
+		// 5. 如果找到了音量控制器，就設定音量
 		if (MMSYSERR_NOERROR == rc)
 		{
 			MIXERCONTROLDETAILS mxcd;
@@ -595,10 +647,8 @@ DWORD ASAudio::SetMicSystemVolume()
 			mxcd.cbDetails = sizeof(volStruct);
 			mxcd.cChannels = 1;
 
-			//取得音量值，取得的資訊放在mxcd
 			rc = mixerGetControlDetails((HMIXEROBJ)hMixer, &mxcd, MIXER_GETCONTROLDETAILSF_VALUE);
 
-			//初始化音量大小資訊
 			MIXERCONTROLDETAILS_UNSIGNED mxcdVolume_Set = { mxc.Bounds.dwMaximum * mWAVE_PARM.WaveInVolume / 100 };
 			MIXERCONTROLDETAILS mxcd_Set = { 0 };
 			mxcd_Set.cbStruct = sizeof(MIXERCONTROLDETAILS);
@@ -608,10 +658,13 @@ DWORD ASAudio::SetMicSystemVolume()
 			mxcd_Set.cbDetails = sizeof(MIXERCONTROLDETAILS_UNSIGNED);
 			mxcd_Set.paDetails = &mxcdVolume_Set;
 
-			//設定音量大小
 			mixerSetControlDetails((HMIXEROBJ)(hMixer), &mxcd_Set, MIXER_OBJECTF_HMIXER | MIXER_SETCONTROLDETAILSF_VALUE);
+
+			// 6. 完成，關閉裝置並直接跳出最外層的大迴圈
 			mixerClose(hMixer);
+			break;
 		}
+		mixerClose(hMixer);
 	}
 	return 0;
 }
@@ -861,24 +914,19 @@ void ASAudio::stopPlayback() {
 
 int ASAudio::GetWaveOutDevice(std::wstring szOutDevName)
 {
-	// 取得音效輸出裝置的數量
 	UINT deviceCount = waveOutGetNumDevs();
 	for (UINT i = 0; i < deviceCount; ++i) {
-		WAVEOUTCAPSA waveOutCaps;
-		MMRESULT result = waveOutGetDevCapsA(i, &waveOutCaps, sizeof(WAVEOUTCAPSA));
+		WAVEOUTCAPSW waveOutCaps; 
+		MMRESULT result = waveOutGetDevCapsW(i, &waveOutCaps, sizeof(WAVEOUTCAPSW)); 
 		if (result == MMSYSERR_NOERROR) {
-			std::string deviceName(waveOutCaps.szPname); // 將裝置名稱轉為 std::string
-			// 將szOutDevName轉為std::string
-			int bufferSize = WideCharToMultiByte(CP_UTF8, 0, szOutDevName.c_str(), -1, NULL, 0, NULL, NULL) - 1;//這裡需要-1，不然會導致find找不到正確的字串數量
-			std::string targetName(bufferSize, ' ');
-			WideCharToMultiByte(CP_UTF8, 0, szOutDevName.c_str(), -1, &targetName[0], bufferSize, NULL, NULL);
+			std::wstring deviceName(waveOutCaps.szPname);
 
-			if (deviceName.find(targetName) != std::string::npos) {
-				return i; // 若含有指定關鍵字的裝置，回傳裝置 ID
+			if (deviceName.find(szOutDevName) != std::wstring::npos) {
+				return i;
 			}
 		}
 	}
-	return -1; // 找不到裝置，回傳 -1
+	return -1;
 }
 
 int ASAudio::GetWaveInDevice(std::wstring szInDevName)
@@ -886,17 +934,13 @@ int ASAudio::GetWaveInDevice(std::wstring szInDevName)
 	// 取得音效輸入裝置的數量
 	UINT deviceCount = waveInGetNumDevs();
 	for (UINT i = 0; i < deviceCount; ++i) {
-		WAVEINCAPSA waveInCaps;
-		MMRESULT result = waveInGetDevCapsA(i, &waveInCaps, sizeof(WAVEINCAPSA));
+		WAVEINCAPSW waveInCaps;
+		MMRESULT result = waveInGetDevCapsW(i, &waveInCaps, sizeof(WAVEINCAPSW));
 		if (result == MMSYSERR_NOERROR) {
-			std::string deviceName(waveInCaps.szPname); // 將裝置名稱轉為 std::string
-			// 將szInDevName轉為std::string
-			int bufferSize = WideCharToMultiByte(CP_UTF8, 0, szInDevName.c_str(), -1, NULL, 0, NULL, NULL) - 1;//這裡需要-1，不然會導致find找不到正確的字串數量
-			std::string targetName(bufferSize, ' ');
-			WideCharToMultiByte(CP_UTF8, 0, szInDevName.c_str(), -1, &targetName[0], bufferSize, NULL, NULL);
+			std::wstring deviceName(waveInCaps.szPname);
 
-			if (deviceName.find(targetName) != std::string::npos) {
-				return i; // 若含有指定關鍵字的裝置，回傳裝置 ID
+			if (deviceName.find(szInDevName) != std::string::npos) {
+				return i; 
 			}
 		}
 	}

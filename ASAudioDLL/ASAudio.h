@@ -17,6 +17,7 @@
 #include <functiondiscoverykeys.h>
 #include <atlbase.h> // for CComPtr
 #include <initguid.h>
+#include <atomic>
 #include <comdef.h> // for _bstr_t
 
 #pragma comment(lib, "strmiids.lib")
@@ -79,6 +80,15 @@ struct WAVE_PARM {
     std::condition_variable recordingFinishedCV;
     bool bMuteTest = false;
     bool firstBufferDiscarded = false;
+    // 使用 atomic<bool> 確保在多執行緒環境下安全地寫入和讀取錯誤狀態
+    std::atomic<bool> deviceError;
+    // 定義錄音的最終結果
+    enum class RecordingResult {
+        Success,
+        Timeout,
+        DeviceError
+    };
+    RecordingResult lastRecordingResult;
 
     WAVE_PARM() :
         WaveOutVolume(0),
@@ -89,7 +99,9 @@ struct WAVE_PARM {
         isRecordingFinished(false),
         bMuteTest(false),
         firstBufferDiscarded(false),
-        fundamentalBandwidthHz(100.0)
+        fundamentalBandwidthHz(100.0),
+        deviceError(false),
+        lastRecordingResult(RecordingResult::Success) 
     {
 
     }
@@ -118,6 +130,7 @@ public:
     void AppendLog(const std::wstring& message);
     const std::wstring& GetLog() const;
     WAVE_PARM& GetWaveParm();
+    WAVE_PARM::RecordingResult WaitForRecording(int timeoutSeconds);
 
     // --- 成員函式宣告 ---
     bool PlayWavFile(bool AutoClose);

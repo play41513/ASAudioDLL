@@ -58,6 +58,7 @@ bool ConfigManager::ReadConfig(const std::string& filePath, Config& config)
     config.FundamentalLevel_dBFS = iNumber;
 
     config.fundamentalBandwidthHz = GetPrivateProfileIntA("AudioTest", "FundamentalBandwidthHz", 100, filePath.c_str());
+    config.maxLevelDifference_dB = GetPrivateProfileIntA("AudioTest", "MaxLevelDifference_dB", 2, filePath.c_str());
 
     config.snrTestEnable = GetPrivateProfileIntA("AudioTest", "SNRTestEnable", 0, filePath.c_str()) == 1;
     config.snrThreshold = GetPrivateProfileIntA("AudioTest", "SNRThreshold", 80, filePath.c_str()); // 預設門檻為 80dB
