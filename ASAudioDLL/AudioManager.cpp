@@ -5,11 +5,18 @@
 #include <Windows.h>
 #include <sstream>      // 用於組合字串
 #include <shellapi.h>   // 為了使用 ShellExecute 來打開音效設定面板
+#include <comdef.h>
 
 extern short leftAudioData[BUFFER_SIZE];
 extern short rightAudioData[BUFFER_SIZE];
 extern double leftSpectrumData[BUFFER_SIZE];
 extern double rightSpectrumData[BUFFER_SIZE];
+
+extern short leftAudioData_SNR[BUFFER_SIZE];
+extern short rightAudioData_SNR[BUFFER_SIZE];
+extern double leftSpectrumData_SNR[BUFFER_SIZE];
+extern double rightSpectrumData_SNR[BUFFER_SIZE];
+
 extern double thd_n[2];
 extern double FundamentalLevel_dBFS[2];
 extern double freq[2];
@@ -17,6 +24,24 @@ extern "C" int fft_thd_n_exe(short*, short*, double*, double*);
 extern "C" void fft_get_thd_n_db(double*, double*, double*);
 extern "C" int fft_mute_exe(bool, bool, short*, short*, double*, double*);
 extern "C" void fft_get_snr(double*);
+
+class ComInitializer {
+public:
+    ComInitializer() : hr(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED)) {
+    }
+    ~ComInitializer() {
+        // 只在成功初始化後才進行反初始化
+        if (SUCCEEDED(hr)) {
+            CoUninitialize();
+        }
+    }
+    // 讓外部可以檢查初始化是否成功
+    HRESULT GetHResult() const {
+        return hr;
+    }
+private:
+    HRESULT hr; // 保存 CoInitializeEx 的回傳值
+};
 
 
 AudioManager::AudioManager() {
@@ -34,6 +59,12 @@ const std::string& AudioManager::GetResultString() const {
 }
 
 bool AudioManager::ExecuteTestsFromConfig(const Config& config) {
+    ComInitializer comInit;
+    if (FAILED(comInit.GetHResult())) {
+        resultString = "LOG:ERROR_COM_INITIALIZE_FAILED#";
+        return false; // 如果 COM 初始化失敗，直接中止
+    }
+
     resultString.clear(); // 每次執行前都清除上一次的結果
 
     // 1. 檢查裝置是否存在
@@ -209,7 +240,7 @@ bool AudioManager::RunSwitchDefaultDevice(const Config& config) {
 bool AudioManager::RunSnrTest(const Config& config) {
     // 執行靜音錄製以獲取噪聲數據
     // MuteWaveOut=true, MuteWaveIn=false (靜音播放，正常錄音)
-    fft_mute_exe(true, false, leftAudioData, rightAudioData, leftSpectrumData, rightSpectrumData);
+    fft_mute_exe(true, false, leftAudioData_SNR, rightAudioData_SNR, leftSpectrumData_SNR, rightSpectrumData_SNR);
 
     double snr_result[2] = { 0 };
     fft_get_snr(snr_result);

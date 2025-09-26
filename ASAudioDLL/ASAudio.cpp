@@ -536,37 +536,30 @@ void CALLBACK ASAudio::WaveInProc(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance, 
 
 // 處理音訊緩衝區
 void ASAudio::ProcessAudioBuffer() {
-	short* audioSamples = reinterpret_cast<short*>(waveHdr.lpData);
+	short* recordedSamples = reinterpret_cast<short*>(waveHdr.lpData);
+
 	for (int i = 0; i < BUFFER_SIZE; i++) {
-		mWAVE_PARM.WAVE_DATA.audioBuffer[bufferIndex + (size_t)i * 2] = reinterpret_cast<short*>(waveHdr.lpData)[i * 2];
-		mWAVE_PARM.WAVE_DATA.audioBuffer[bufferIndex + (size_t)i * 2 + 1] = reinterpret_cast<short*>(waveHdr.lpData)[i * 2 + 1];
+		// 左聲道樣本
+		short leftSample = recordedSamples[i * 2];
+		mWAVE_PARM.WAVE_DATA.LeftAudioBuffer[i] = leftSample;
+		fftInputBufferLeft[i][0] = static_cast<double>(leftSample);
+		fftInputBufferLeft[i][1] = 0.0;
+
+		// 右聲道樣本
+		short rightSample = recordedSamples[i * 2 + 1];
+		mWAVE_PARM.WAVE_DATA.RightAudioBuffer[i] = rightSample;
+		fftInputBufferRight[i][0] = static_cast<double>(rightSample);
+		fftInputBufferRight[i][1] = 0.0;
 	}
-	bufferIndex += (size_t)BUFFER_SIZE * 2;
 
-	if (bufferIndex >= (size_t)BUFFER_SIZE * 2) {
-		// 已經錄到足夠的樣本數(BUFFER_SIZE*2)
-		// 填滿 FFT 緩衝區
-		for (int i = 0; i < (size_t)BUFFER_SIZE; i++) {
-			fftInputBufferLeft[i][0] = mWAVE_PARM.WAVE_DATA.audioBuffer[i * 2];
-			fftInputBufferLeft[i][1] = 0.0;
-			fftInputBufferRight[i][0] = mWAVE_PARM.WAVE_DATA.audioBuffer[i * 2 + 1];
-			fftInputBufferRight[i][1] = 0.0;
+	// 執行FFT轉換
+	fftw_execute(fftPlanLeft);
+	fftw_execute(fftPlanRight);
 
-			mWAVE_PARM.WAVE_DATA.LeftAudioBuffer[i] = mWAVE_PARM.WAVE_DATA.audioBuffer[i * 2];
-			mWAVE_PARM.WAVE_DATA.RightAudioBuffer[i] = mWAVE_PARM.WAVE_DATA.audioBuffer[i * 2 + 1];
-		}
-
-		// 執行FFT轉換
-		fftw_execute(fftPlanLeft);
-		fftw_execute(fftPlanRight);
-
-		// 通知錄音完成
-		std::lock_guard<std::mutex> lock(mWAVE_PARM.recordingMutex);
-		mWAVE_PARM.isRecordingFinished = true;
-		mWAVE_PARM.recordingFinishedCV.notify_one();
-
-		bufferIndex = 0;
-	}
+	// 通知錄音完成
+	std::lock_guard<std::mutex> lock(mWAVE_PARM.recordingMutex);
+	mWAVE_PARM.isRecordingFinished = true;
+	mWAVE_PARM.recordingFinishedCV.notify_one();
 }
 
 DWORD ASAudio::SetMicSystemVolume()
@@ -671,10 +664,6 @@ DWORD ASAudio::SetMicSystemVolume()
 
 DWORD ASAudio::SetSpeakerSystemVolume() const
 {
-	HRESULT hrInit = CoInitialize(NULL);
-	if (FAILED(hrInit)) {
-	}
-
 	HRESULT hr;
 	IMMDeviceEnumerator* pEnumerator = NULL;
 	IMMDeviceCollection* pDevices = NULL;
@@ -748,8 +737,6 @@ DWORD ASAudio::SetSpeakerSystemVolume() const
 		}
 		pEnumerator->Release();
 	}
-
-	CoUninitialize();
 	return dwResult;
 }
 
@@ -1011,98 +998,126 @@ int ASAudio::patestCallback(const void* inputBuffer, void* outputBuffer,
 	return paContinue; // 繼續播放
 }
 
+/**
+ * @brief 開始音訊迴路 (Loopback)。
+ * @param captureKeyword 用於識別擷取裝置 (麥克風) 名稱的關鍵字。
+ * @param renderKeyword 用於識別渲染裝置 (喇叭) 名稱的關鍵字。
+ * @return bool 操作是否成功。
+ * @note 此函式依賴於類別成員 pGraph, pCaptureGraph 等被宣告為 CComPtr 智慧指標，
+ * 以實現自動資源管理，避免在錯誤發生時產生資源洩漏。
+ */
 bool ASAudio::StartAudioLoopback(const std::wstring captureKeyword, const std::wstring renderKeyword) {
 	HRESULT hr;
-	HRESULT hrInit = CoInitialize(nullptr);
-	if (FAILED(hrInit)) {
-		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_COM_INITIALIZE#";
+
+	// 建立 Graph (圖形管理器) 和 Capture Graph Builder
+	// CComPtr 會在物件建立失敗時保持為 NULL
+	hr = pGraph.CoCreateInstance(CLSID_FilterGraph);
+	if (FAILED(hr)) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_CREATE_GRAPH#";
 		return false;
 	}
 
-	// 建立 Graph (圖形管理器)
-	hr = CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pGraph));
-	if (FAILED(hr)) { return false; }
-	hr = CoCreateInstance(CLSID_CaptureGraphBuilder2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pCaptureGraph));
-	if (FAILED(hr)) { CoUninitialize(); return false; }
-	pCaptureGraph->SetFiltergraph(pGraph);
+	hr = pCaptureGraph.CoCreateInstance(CLSID_CaptureGraphBuilder2);
+	if (FAILED(hr)) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_CREATE_BUILDER#";
+		return false;
+	}
+
+	// 將 filter graph 關聯到 capture graph builder
+	hr = pCaptureGraph->SetFiltergraph(pGraph);
+	if (FAILED(hr)) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_SET_FILTERGRAPH#";
+		return false;
+	}
 
 	// 建立裝置列舉器
 	CComPtr<ICreateDevEnum> pDevEnum;
-	hr = CoCreateInstance(CLSID_SystemDeviceEnum, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDevEnum));
+	hr = pDevEnum.CoCreateInstance(CLSID_SystemDeviceEnum);
+	if (FAILED(hr)) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_CREATE_DEV_ENUM#";
+		return false;
+	}
 
-	// --- 尋找指定的擷取與渲染裝置的篩選器 ---
-	if (SUCCEEDED(hr)) {
-		CComPtr<IEnumMoniker> pEnum;
-		if (SUCCEEDED(pDevEnum->CreateClassEnumerator(CLSID_AudioInputDeviceCategory, &pEnum, 0)) && pEnum) {
-			// 將 pMoniker 宣告移至迴圈內
-			while (true) {
-				CComPtr<IMoniker> pMoniker;
-				if (pEnum->Next(1, &pMoniker, nullptr) != S_OK) {
-					break; // 找不到更多裝置，跳出迴圈
-				}
-
-				CComPtr<IPropertyBag> pPropBag;
-				if (SUCCEEDED(pMoniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&pPropBag))) && pPropBag) {
-					VARIANT varName;
-					VariantInit(&varName);
-					if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, nullptr))) {
-						if (wcsstr(varName.bstrVal, captureKeyword.c_str())) {
-							pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioCapture);
-						}
+	// --- 尋找指定的擷取裝置篩選器 ---
+	CComPtr<IEnumMoniker> pEnumCapture;
+	if (SUCCEEDED(pDevEnum->CreateClassEnumerator(CLSID_AudioInputDeviceCategory, &pEnumCapture, 0)) && pEnumCapture) {
+		CComPtr<IMoniker> pMoniker;
+		while (pEnumCapture->Next(1, &pMoniker, nullptr) == S_OK) {
+			CComPtr<IPropertyBag> pPropBag;
+			if (SUCCEEDED(pMoniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&pPropBag)))) {
+				VARIANT varName;
+				VariantInit(&varName);
+				if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, nullptr))) {
+					if (wcsstr(varName.bstrVal, captureKeyword.c_str())) {
+						// 找到相符的裝置，建立 filter
+						pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioCapture);
 					}
-					VariantClear(&varName);
 				}
-				if (pAudioCapture) break; // 找到裝置，跳出迴圈
+				VariantClear(&varName);
 			}
+			if (pAudioCapture) break; // 找到後跳出迴圈
+			pMoniker.Release(); // 釋放當前 moniker 繼續尋找下一個
 		}
 	}
 
 	if (!pAudioCapture) {
 		strMacroResult = "LOG:ERROR_AUDIO_WAVEIN_DEVICE_NOT_FIND#";
-		CoUninitialize();
-		return false;
+		return false; // CComPtr 會自動釋放已建立的 pGraph, pCaptureGraph 等物件
 	}
 
-	if (SUCCEEDED(hr)) {
-		CComPtr<IEnumMoniker> pEnum;
-		if (SUCCEEDED(pDevEnum->CreateClassEnumerator(CLSID_AudioRendererCategory, &pEnum, 0)) && pEnum) {
-			while (true) {
-				CComPtr<IMoniker> pMoniker;
-				if (pEnum->Next(1, &pMoniker, nullptr) != S_OK) {
-					break;
-				}
-
-				CComPtr<IPropertyBag> pPropBag;
-				if (SUCCEEDED(pMoniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&pPropBag))) && pPropBag) {
-					VARIANT varName;
-					VariantInit(&varName);
-					if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, nullptr))) {
-						if (wcsstr(varName.bstrVal, renderKeyword.c_str())) {
-							pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioRenderer);
-						}
+	// --- 尋找指定的渲染裝置篩選器 ---
+	CComPtr<IEnumMoniker> pEnumRender;
+	if (SUCCEEDED(pDevEnum->CreateClassEnumerator(CLSID_AudioRendererCategory, &pEnumRender, 0)) && pEnumRender) {
+		CComPtr<IMoniker> pMoniker;
+		while (pEnumRender->Next(1, &pMoniker, nullptr) == S_OK) {
+			CComPtr<IPropertyBag> pPropBag;
+			if (SUCCEEDED(pMoniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&pPropBag)))) {
+				VARIANT varName;
+				VariantInit(&varName);
+				if (SUCCEEDED(pPropBag->Read(L"FriendlyName", &varName, nullptr))) {
+					if (wcsstr(varName.bstrVal, renderKeyword.c_str())) {
+						pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter, (void**)&pAudioRenderer);
 					}
-					VariantClear(&varName);
 				}
-				if (pAudioRenderer) break;
+				VariantClear(&varName);
 			}
+			if (pAudioRenderer) break; // 找到後跳出迴圈
+			pMoniker.Release();
 		}
 	}
 
 	if (!pAudioRenderer) {
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_NO_MATCH_RENDER_DEVICE#";
-		CoUninitialize();
+		return false; // CComPtr 會自動釋放已建立的物件
+	}
+
+	// 將篩選器加入圖形
+	hr = pGraph->AddFilter(pAudioCapture, L"Audio Capture");
+	if (FAILED(hr)) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_ADD_CAPTURE_FILTER#";
 		return false;
 	}
 
-	// 將篩選器加入圖形...
-	pGraph->AddFilter(pAudioCapture, L"Audio Capture");
-	pGraph->AddFilter(pAudioRenderer, L"Audio Renderer");
+	hr = pGraph->AddFilter(pAudioRenderer, L"Audio Renderer");
+	if (FAILED(hr)) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_ADD_RENDER_FILTER#";
+		return false;
+	}
+
+	// 連接擷取與渲染裝置的資料流
 	hr = pCaptureGraph->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Audio, pAudioCapture, nullptr, pAudioRenderer);
 	if (FAILED(hr)) {
 		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_RENDER_STREAM#";
 		return false;
 	}
-	pGraph->QueryInterface(IID_PPV_ARGS(&pMediaControl));
+
+	// 取得媒體控制介面並執行
+	hr = pGraph->QueryInterface(IID_PPV_ARGS(&pMediaControl));
+	if (FAILED(hr) || !pMediaControl) {
+		strMacroResult = "LOG:ERROR_AUDIO_LOOPBACK_GET_MEDIA_CONTROL#";
+		return false;
+	}
+
 	pMediaControl->Run();
 	return true;
 }
@@ -1118,8 +1133,6 @@ void ASAudio::StopAudioLoopback()
 	pAudioRenderer = nullptr;
 	pCaptureGraph = nullptr;
 	pGraph = nullptr;
-
-	CoUninitialize();
 }
 
 
@@ -1148,7 +1161,6 @@ bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
 	CComPtr<IMMDeviceCollection> collection;
 	CComPtr<IMMDevice> device;
 
-	CoInitializeEx(NULL, COINIT_MULTITHREADED);
 	HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
 		__uuidof(IMMDeviceEnumerator), (void**)&enumerator);
 
@@ -1221,7 +1233,6 @@ bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
 					outDeviceId = deviceId;
 					CoTaskMemFree(deviceId);
 					PropVariantClear(&friendlyName);
-					CoUninitialize();
 					allContent = L""; // 清空日誌
 					return true;
 				}
@@ -1235,7 +1246,6 @@ bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
 		CoTaskMemFree(deviceId);
 		PropVariantClear(&friendlyName);
 	}
-	CoUninitialize();
 
 	// 如果迴圈跑完還沒找到
 	allContent += L"\n\n[要找的裝置 Target Audio Devices]\n";

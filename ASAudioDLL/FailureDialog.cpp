@@ -7,12 +7,21 @@
 #include <string>
 #include <sstream>
 
+
+enum class ChartView {
+    THDN,
+    SNR
+};
+static ChartView g_currentView = ChartView::THDN;
+
 // 將全域資料指標儲存起來，以便在 DialogProc 中存取
 static AudioData* g_pAudioData = nullptr;
 
 constexpr int WAVEFORM_DISPLAY_SAMPLES = 256; // 一次顯示 256 個取樣點
 static int g_scrollPosLeft = 0;
 static int g_scrollPosRight = 0;
+
+
 
 void UpdateResultText(HWND hDlg, const Config* cfg, AudioData* pData)
 {
@@ -225,6 +234,9 @@ INT_PTR CALLBACK FailureDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARA
             SetWindowTextW(hDlg, L"測試失敗 (Test Failed)");
         }
 
+        g_currentView = ChartView::THDN; // 每次打開都重設為預設
+        CheckRadioButton(hDlg, IDC_RADIO_THDN, IDC_RADIO_SNR, IDC_RADIO_THDN);
+
         // 初始化捲軸
         if (g_pAudioData && g_pAudioData->bufferSize > WAVEFORM_DISPLAY_SAMPLES) {
             SCROLLINFO si = { 0 };
@@ -244,6 +256,7 @@ INT_PTR CALLBACK FailureDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARA
         return (INT_PTR)TRUE;
     }
     case WM_COMMAND: {
+        // --- 處理按鈕點擊 ---
         if (LOWORD(wParam) == IDC_RETRY_BUTTON) {
             EndDialog(hDlg, TRUE);
             return (INT_PTR)TRUE;
@@ -251,6 +264,31 @@ INT_PTR CALLBACK FailureDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARA
         if (LOWORD(wParam) == IDCANCEL) {
             EndDialog(hDlg, FALSE);
             return (INT_PTR)TRUE;
+        }
+
+        // <<< 處理 Radio Button 點擊事件 >>>
+        bool needsRedraw = false;
+        switch (LOWORD(wParam)) {
+        case IDC_RADIO_THDN:
+            if (g_currentView != ChartView::THDN) {
+                g_currentView = ChartView::THDN;
+                needsRedraw = true;
+            }
+            break;
+        case IDC_RADIO_SNR:
+            if (g_currentView != ChartView::SNR) {
+                g_currentView = ChartView::SNR;
+                needsRedraw = true;
+            }
+            break;
+        }
+
+        if (needsRedraw) {
+            // 強制重繪所有四個圖表控制項
+            InvalidateRect(GetDlgItem(hDlg, IDC_WAVEFORM_LEFT), NULL, TRUE);
+            InvalidateRect(GetDlgItem(hDlg, IDC_WAVEFORM_RIGHT), NULL, TRUE);
+            InvalidateRect(GetDlgItem(hDlg, IDC_SPECTRUM_LEFT), NULL, TRUE);
+            InvalidateRect(GetDlgItem(hDlg, IDC_SPECTRUM_RIGHT), NULL, TRUE);
         }
         break;
     }
@@ -298,18 +336,24 @@ INT_PTR CALLBACK FailureDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARA
         LPDRAWITEMSTRUCT lpDrawItem = (LPDRAWITEMSTRUCT)lParam;
         if (!g_pAudioData) return TRUE;
 
+        // <<< 新增：根據 g_currentView 選擇要繪製的資料 >>>
+        short* pLeftWaveData = (g_currentView == ChartView::THDN) ? g_pAudioData->leftAudioData : g_pAudioData->leftAudioData_SNR;
+        short* pRightWaveData = (g_currentView == ChartView::THDN) ? g_pAudioData->rightAudioData : g_pAudioData->rightAudioData_SNR;
+        double* pLeftSpectrumData = (g_currentView == ChartView::THDN) ? g_pAudioData->leftSpectrumData : g_pAudioData->leftSpectrumData_SNR;
+        double* pRightSpectrumData = (g_currentView == ChartView::THDN) ? g_pAudioData->rightSpectrumData : g_pAudioData->rightSpectrumData_SNR;
+
         switch (lpDrawItem->CtlID) {
         case IDC_WAVEFORM_LEFT:
-            DrawWaveform(lpDrawItem->hDC, lpDrawItem->rcItem, g_pAudioData->leftAudioData, g_scrollPosLeft, WAVEFORM_DISPLAY_SAMPLES);
+            DrawWaveform(lpDrawItem->hDC, lpDrawItem->rcItem, pLeftWaveData, g_scrollPosLeft, WAVEFORM_DISPLAY_SAMPLES);
             return TRUE;
         case IDC_WAVEFORM_RIGHT:
-            DrawWaveform(lpDrawItem->hDC, lpDrawItem->rcItem, g_pAudioData->rightAudioData, g_scrollPosRight, WAVEFORM_DISPLAY_SAMPLES);
+            DrawWaveform(lpDrawItem->hDC, lpDrawItem->rcItem, pRightWaveData, g_scrollPosRight, WAVEFORM_DISPLAY_SAMPLES);
             return TRUE;
         case IDC_SPECTRUM_LEFT:
-            DrawSpectrum(lpDrawItem->hDC, lpDrawItem->rcItem, g_pAudioData->leftSpectrumData, g_pAudioData->bufferSize);
+            DrawSpectrum(lpDrawItem->hDC, lpDrawItem->rcItem, pLeftSpectrumData, g_pAudioData->bufferSize);
             return TRUE;
         case IDC_SPECTRUM_RIGHT:
-            DrawSpectrum(lpDrawItem->hDC, lpDrawItem->rcItem, g_pAudioData->rightSpectrumData, g_pAudioData->bufferSize);
+            DrawSpectrum(lpDrawItem->hDC, lpDrawItem->rcItem, pRightSpectrumData, g_pAudioData->bufferSize);
             return TRUE;
         }
         break;

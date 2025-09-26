@@ -9,6 +9,12 @@ struct AudioData {
     short* rightAudioData;
     double* leftSpectrumData;
     double* rightSpectrumData;
+
+    short* leftAudioData_SNR;
+    short* rightAudioData_SNR;
+    double* leftSpectrumData_SNR;
+    double* rightSpectrumData_SNR;
+
     int bufferSize;
     LPCWSTR errorMessage;
 

@@ -26,6 +26,12 @@ short leftAudioData[BUFFER_SIZE] = { 0 };
 short rightAudioData[BUFFER_SIZE] = { 0 };
 double leftSpectrumData[BUFFER_SIZE] = { 0 };
 double rightSpectrumData[BUFFER_SIZE] = { 0 };
+
+short leftAudioData_SNR[BUFFER_SIZE] = { 0 };
+short rightAudioData_SNR[BUFFER_SIZE] = { 0 };
+double leftSpectrumData_SNR[BUFFER_SIZE] = { 0 };
+double rightSpectrumData_SNR[BUFFER_SIZE] = { 0 };
+
 double thd_n[2] = { 0 };
 double FundamentalLevel_dBFS[2] = { 0 };
 double freq[2] = { 0 };
@@ -57,7 +63,6 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 			audioInstance.GetWaveParm().AudioFile = configs.WAVFilePath_w;
 			audioInstance.GetWaveParm().fundamentalBandwidthHz = configs.fundamentalBandwidthHz;
 
-			// 使用新的 AudioManager 執行測試流程
 			AudioManager audioManager;
 			audioManager.ExecuteTestsFromConfig(configs);
 			finalResult = audioManager.GetResultString(); // 總是獲取結果，無論成功或失敗
@@ -74,21 +79,28 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 			std::string strTemp = "失敗 (Failed): " + finalResult;
 			std::wstring wErrorMsg = audioInstance.charToWstring(strTemp.c_str()) + L"\n" + audioInstance.GetLog();
 
-			// 填充AudioData ---
 			AudioData data;
-			data.leftAudioData = leftAudioData;
-			data.rightAudioData = rightAudioData;
-			data.leftSpectrumData = leftSpectrumData;
-			data.rightSpectrumData = rightSpectrumData;
 			data.bufferSize = BUFFER_SIZE;
 			data.errorMessage = wErrorMsg.c_str();
-
 			// 傳入設定和結果的指標
 			data.config = &configs;
 			data.thd_n_result = thd_n;
 			data.FundamentalLevel_dBFS_result = FundamentalLevel_dBFS;
 			data.freq_result = freq;
 
+			// 填充 THD+N 的圖表資料
+			data.leftAudioData = leftAudioData;
+			data.rightAudioData = rightAudioData;
+			data.leftSpectrumData = leftSpectrumData;
+			data.rightSpectrumData = rightSpectrumData;
+
+			// <<< 新增：填充 SNR 的圖表資料 >>>
+			data.leftAudioData_SNR = leftAudioData_SNR;
+			data.rightAudioData_SNR = rightAudioData_SNR;
+			data.leftSpectrumData_SNR = leftSpectrumData_SNR;
+			data.rightSpectrumData_SNR = rightSpectrumData_SNR;
+
+			// 呼叫 ShowFailureDialog，現在它擁有了兩組資料
 			if (ShowFailureDialog(g_hInst, ownerHwnd, &data)) {
 				shouldRetry = true;
 			}
