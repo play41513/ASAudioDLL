@@ -4,7 +4,6 @@
 //
 #define IDD_FAIL_DIALOG                 101
 #define IDC_RADIO_THDN                  1008
-#define IDC_RADIO4                      1009
 #define IDC_RADIO_SNR                   1009
 #define IDC_RETRY_BUTTON                1101
 #define IDC_WAVEFORM_LEFT               1103
@@ -18,6 +17,7 @@
 #define IDC_INFO_FREQ                   1111
 #define IDC_INFO_THDN                   1112
 #define IDC_INFO_DB                     1113
+#define IDC_INFO_SNR                    1114
 
 // Next default values for new objects
 // 

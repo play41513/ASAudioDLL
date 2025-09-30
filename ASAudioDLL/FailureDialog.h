@@ -15,6 +15,9 @@ struct AudioData {
     double* leftSpectrumData_SNR;
     double* rightSpectrumData_SNR;
 
+    std::wstring actualOutDeviceName;
+    std::wstring actualInDeviceName;
+
     int bufferSize;
     LPCWSTR errorMessage;
 
@@ -23,6 +26,7 @@ struct AudioData {
     double* thd_n_result;         // 指向實際測得的 THD+N 陣列 [L, R]
     double* FundamentalLevel_dBFS_result;   // 指向實際測得的 FundamentalLevel_dBFS 陣列 [L, R]
     double* freq_result;          // 指向實際測得的主頻率陣列 [L, R]
+    double* snr_result;
 };
 
 // 顯示 Dialog 的函式，如果使用者點擊 "Retry" 則回傳 true

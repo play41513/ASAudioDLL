@@ -234,16 +234,16 @@ void ASAudio::SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumDa
 		if (!mWAVE_PARM.bMuteTest && (maxAmplitude < fullScale * 0.001)) { // ~ -60 dBFS
 			leftAnalysis.thd_N_dB = 0; // 使用 0 dB 表示錯誤/無效訊號
 			leftAnalysis.TotalEnergyPoint = 0;
-			leftAnalysis.TotalEnergy = 0; // 最好也將能量歸零
+			leftAnalysis.TotalEnergy = 0; 
 			leftAnalysis.fundamentalEnergy = 0;
 		}
 		else {
-			// 4c. 修正點 #3 & #4: 使用正確的能量計算 THD+N
+			// 4c. 使用正確的能量計算 THD+N
 			double totalEnergy = 0;
 			double fundamentalEnergy = 0;
 			const double sampleRate = 44100.0;
 
-			double bandwidthHz = GetWaveParm().fundamentalBandwidthHz; // 假設 config 被存在 WAVE_PARM
+			double bandwidthHz = GetWaveParm().fundamentalBandwidthHz; 
 			if (bandwidthHz <= 0) bandwidthHz = 100.0;
 			double freqPerBin = sampleRate / N;
 			int peakWidth = static_cast<int>(round(bandwidthHz / freqPerBin));
@@ -909,10 +909,12 @@ int ASAudio::GetWaveOutDevice(std::wstring szOutDevName)
 			std::wstring deviceName(waveOutCaps.szPname);
 
 			if (deviceName.find(szOutDevName) != std::wstring::npos) {
+				ASAudio::GetInstance().mWAVE_PARM.ActualWaveOutDev = deviceName;
 				return i;
 			}
 		}
 	}
+	ASAudio::GetInstance().GetWaveParm().ActualWaveOutDev.clear();
 	return -1;
 }
 
@@ -927,10 +929,12 @@ int ASAudio::GetWaveInDevice(std::wstring szInDevName)
 			std::wstring deviceName(waveInCaps.szPname);
 
 			if (deviceName.find(szInDevName) != std::string::npos) {
+				ASAudio::GetInstance().mWAVE_PARM.ActualWaveInDev = deviceName;
 				return i; 
 			}
 		}
 	}
+	ASAudio::GetInstance().GetWaveParm().ActualWaveInDev.clear();
 	return -1; // 找不到裝置，回傳 -1
 }
 

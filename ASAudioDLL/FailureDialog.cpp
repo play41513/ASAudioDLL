@@ -30,8 +30,16 @@ void UpdateResultText(HWND hDlg, const Config* cfg, AudioData* pData)
     std::wstringstream wss;
 
     // --- 第 1 行: 播放與錄音裝置 ---
-    wss << L"Playback: " << std::wstring(cfg->outDeviceName.begin(), cfg->outDeviceName.end()) << L" (" << cfg->outDeviceVolume << L"%)"
-        << L"    |    Recording: " << std::wstring(cfg->inDeviceName.begin(), cfg->inDeviceName.end()) << L" (" << cfg->inDeviceVolume << L"%)";
+    std::wstring outDeviceDisplayName = pData->actualOutDeviceName.empty() 
+        ? std::wstring(cfg->outDeviceName.begin(), cfg->outDeviceName.end()) 
+        : pData->actualOutDeviceName;
+    
+    std::wstring inDeviceDisplayName = pData->actualInDeviceName.empty()
+        ? std::wstring(cfg->inDeviceName.begin(), cfg->inDeviceName.end())
+        : pData->actualInDeviceName;
+
+    wss << L"Playback: " << outDeviceDisplayName << L" (" << cfg->outDeviceVolume << L"%)"
+        << L"     |     Recording: " << inDeviceDisplayName << L" (" << cfg->inDeviceVolume << L"%)";
     SetDlgItemTextW(hDlg, IDC_INFO_DEVICES, wss.str().c_str());
     wss.str(L""); // 清空
 
@@ -42,15 +50,23 @@ void UpdateResultText(HWND hDlg, const Config* cfg, AudioData* pData)
     wss.str(L"");
 
     // --- 第 3 行: THD+N [參數, 實際值] ---
-    wss << L"THD+N [Param, Actual]  L: [<" << cfg->thd_n << ", " << static_cast<int>(pData->thd_n_result[0]) << L"] dB"
-        << L"    R: [>" << cfg->thd_n << ", " << static_cast<int>(pData->thd_n_result[1]) << L"] dB";
+    wss << L"THD+N [Threshold, Actual]  L: [< " << cfg->thd_n << ", " << static_cast<int>(pData->thd_n_result[0]) << L"] dB"
+        << L"    R: [< " << cfg->thd_n << ", " << static_cast<int>(pData->thd_n_result[1]) << L"] dB";
     SetDlgItemTextW(hDlg, IDC_INFO_THDN, wss.str().c_str());
     wss.str(L"");
 
     // --- 第 4 行: dB Max [參數, 實際值] ---
-    wss << L"FundamentalLevel_dBFS [Param, Actual]  L: [>" << cfg->FundamentalLevel_dBFS << ", " << static_cast<int>(pData->FundamentalLevel_dBFS_result[0]) << L"] dBFS"
-        << L"    R: [>" << cfg->FundamentalLevel_dBFS << ", " << static_cast<int>(pData->FundamentalLevel_dBFS_result[1]) << L"] dBFS";
+    wss << L"Fundamental Level [Threshold, Actual]  L: [> " << cfg->FundamentalLevel_dBFS << ", " << static_cast<int>(pData->FundamentalLevel_dBFS_result[0]) << L"] dBFS"
+        << L"    R: [> " << cfg->FundamentalLevel_dBFS << ", " << static_cast<int>(pData->FundamentalLevel_dBFS_result[1]) << L"] dBFS";
     SetDlgItemTextW(hDlg, IDC_INFO_DB, wss.str().c_str());
+    wss.str(L"");
+    // --- 第 4 行: SNR [參數, 實際值] ---
+    if (pData->snr_result) {
+        wss << L"SNR [Threshold, Actual]  L: [>" << cfg->snrThreshold << ", " << static_cast<int>(pData->snr_result[0]) << L"] dB"
+            << L"     R: [>" << cfg->snrThreshold << ", " << static_cast<int>(pData->snr_result[1]) << L"] dB";
+        SetDlgItemTextW(hDlg, IDC_INFO_SNR, wss.str().c_str());
+        wss.str(L"");
+    }
 }
 
 void DrawWaveform(HDC hdc, const RECT& rc, short* audioData, int startSample, int numSamples) {

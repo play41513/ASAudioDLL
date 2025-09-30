@@ -20,6 +20,8 @@ extern double rightSpectrumData_SNR[BUFFER_SIZE];
 extern double thd_n[2];
 extern double FundamentalLevel_dBFS[2];
 extern double freq[2];
+extern double snr_result[2];
+
 extern "C" int fft_thd_n_exe(short*, short*, double*, double*);
 extern "C" void fft_get_thd_n_db(double*, double*, double*);
 extern "C" int fft_mute_exe(bool, bool, short*, short*, double*, double*);
@@ -241,8 +243,7 @@ bool AudioManager::RunSnrTest(const Config& config) {
     // 執行靜音錄製以獲取噪聲數據
     // MuteWaveOut=true, MuteWaveIn=false (靜音播放，正常錄音)
     fft_mute_exe(true, false, leftAudioData_SNR, rightAudioData_SNR, leftSpectrumData_SNR, rightSpectrumData_SNR);
-
-    double snr_result[2] = { 0 };
+    snr_result[0] = snr_result[1] = 0;
     fft_get_snr(snr_result);
 
     // 判斷測試結果
@@ -257,7 +258,6 @@ bool AudioManager::RunSnrTest(const Config& config) {
     else {
         std::stringstream ss;
         // 將成功的結果附加到現有的 resultString 後面
-        // 注意：我們用 += 來附加，而不是直接賦值
         ss << "SUCCESS_SNR_" << "L_" << static_cast<int>(snr_result[0])
             << "_R_" << static_cast<int>(snr_result[1]) << "#";
 

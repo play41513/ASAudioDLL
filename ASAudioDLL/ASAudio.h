@@ -61,6 +61,8 @@ struct WAVE_DATA {
 struct WAVE_PARM {
     std::wstring WaveOutDev;
     std::wstring WaveInDev;
+    std::wstring ActualWaveOutDev;
+    std::wstring ActualWaveInDev;
     int WaveOutVolume;
     int WaveInVolume;
     int frequencyL;

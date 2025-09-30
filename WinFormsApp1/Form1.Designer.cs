@@ -34,6 +34,7 @@
             // 
             // button1
             // 
+            button1.Font = new Font("Consolas", 9F);
             button1.Location = new Point(40, 53);
             button1.Name = "button1";
             button1.Size = new Size(94, 29);

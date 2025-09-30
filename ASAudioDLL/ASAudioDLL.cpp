@@ -35,6 +35,7 @@ double rightSpectrumData_SNR[BUFFER_SIZE] = { 0 };
 double thd_n[2] = { 0 };
 double FundamentalLevel_dBFS[2] = { 0 };
 double freq[2] = { 0 };
+double snr_result[2] = { 0 };
 
 extern HINSTANCE g_hInst;
 
@@ -87,6 +88,7 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 			data.thd_n_result = thd_n;
 			data.FundamentalLevel_dBFS_result = FundamentalLevel_dBFS;
 			data.freq_result = freq;
+			data.snr_result = snr_result;
 
 			// 填充 THD+N 的圖表資料
 			data.leftAudioData = leftAudioData;
@@ -99,6 +101,11 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 			data.rightAudioData_SNR = rightAudioData_SNR;
 			data.leftSpectrumData_SNR = leftSpectrumData_SNR;
 			data.rightSpectrumData_SNR = rightSpectrumData_SNR;
+
+			// <<< 從 audioInstance 獲取並填充實際裝置名稱 >>>
+			data.actualOutDeviceName = audioInstance.GetWaveParm().ActualWaveOutDev;
+			data.actualInDeviceName = audioInstance.GetWaveParm().ActualWaveInDev;
+
 
 			// 呼叫 ShowFailureDialog，現在它擁有了兩組資料
 			if (ShowFailureDialog(g_hInst, ownerHwnd, &data)) {
