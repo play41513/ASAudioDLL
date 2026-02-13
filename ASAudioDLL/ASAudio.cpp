@@ -1153,6 +1153,14 @@ bool ASAudio::SetDefaultAudioPlaybackDevice(const std::wstring& deviceId)
 	// 回傳是否成功(0 代表成功)
 	return result == 0;
 }
+bool ASAudio::SetListenToThisDevice(const std::wstring& deviceId, int enable)
+{
+	// SoundVolumeView.exe /SetListenToThisDevice "{deviceId}" {1 or 0}
+	std::wstring command = L"SoundVolumeView.exe /SetListenToThisDevice \"" + deviceId + L"\" " + std::to_wstring(enable);
+
+	int result = _wsystem(command.c_str());
+	return result == 0;
+}
 
 bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
 {

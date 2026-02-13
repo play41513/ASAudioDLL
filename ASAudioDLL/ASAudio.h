@@ -146,6 +146,7 @@ public:
     bool StartAudioLoopback(const std::wstring captureKeyword, const std::wstring renderKeyword);
     void StopAudioLoopback();
     bool SetDefaultAudioPlaybackDevice(const std::wstring& deviceId);
+    bool SetListenToThisDevice(const std::wstring& deviceId, int enable);
     bool FindDeviceIdByName(struct Config& config, std::wstring& outDeviceId);
     std::wstring charToWstring(const char* szIn);
     void SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumData);

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <string>
 #include <sstream>
+#include <iomanip>
 
 
 enum class ChartView {
@@ -16,10 +17,12 @@ static ChartView g_currentView = ChartView::THDN;
 
 // 將全域資料指標儲存起來，以便在 DialogProc 中存取
 static AudioData* g_pAudioData = nullptr;
+static HFONT g_hMonoFont = NULL;
 
 constexpr int WAVEFORM_DISPLAY_SAMPLES = 256; // 一次顯示 256 個取樣點
 static int g_scrollPosLeft = 0;
 static int g_scrollPosRight = 0;
+const double NOT_TESTED_VALUE = -999.0;
 
 
 
@@ -30,40 +33,50 @@ void UpdateResultText(HWND hDlg, const Config* cfg, AudioData* pData)
     std::wstringstream wss;
 
     // --- 第 1 行: 播放與錄音裝置 ---
-    std::wstring outDeviceDisplayName = pData->actualOutDeviceName.empty() 
-        ? std::wstring(cfg->outDeviceName.begin(), cfg->outDeviceName.end()) 
+    std::wstring outDeviceDisplayName = pData->actualOutDeviceName.empty()
+        ? std::wstring(cfg->outDeviceName.begin(), cfg->outDeviceName.end())
         : pData->actualOutDeviceName;
-    
+
     std::wstring inDeviceDisplayName = pData->actualInDeviceName.empty()
         ? std::wstring(cfg->inDeviceName.begin(), cfg->inDeviceName.end())
         : pData->actualInDeviceName;
 
-    wss << L"Playback: " << outDeviceDisplayName << L" (" << cfg->outDeviceVolume << L"%)"
-        << L"     |     Recording: " << inDeviceDisplayName << L" (" << cfg->inDeviceVolume << L"%)";
+    // 稍微調整分隔線，讓視覺更一致
+    wss << L"" << outDeviceDisplayName << L" (" << cfg->outDeviceVolume << L"%)"
+        << L"   |   " << inDeviceDisplayName << L" (" << cfg->inDeviceVolume << L"%)";
     SetDlgItemTextW(hDlg, IDC_INFO_DEVICES, wss.str().c_str());
     wss.str(L""); // 清空
 
+    // --- 統一設定標籤寬度以便對齊 ---
+    const int labelWidth = 40; // 標籤欄位的寬度
+    const int valueWidth = 5;  // 數值欄位的寬度
+
     // --- 第 2 行: 頻率 [設定值, 實際值] ---
-    wss << L"Frequency [Set, Actual]  L: [" << cfg->frequencyL << L", " << static_cast<int>(pData->freq_result[0]) << L"] Hz"
-        << L"    R: [" << cfg->frequencyR << L", " << static_cast<int>(pData->freq_result[1]) << L"] Hz";
+    wss << std::left << std::setw(labelWidth) << L"Frequency [Set, Actual]";
+    wss << L"L: [" << std::setw(valueWidth) << cfg->frequencyL << L" , " << std::setw(valueWidth) << static_cast<int>(pData->freq_result[0]) << L"] Hz  ";
+    wss << L"    R: [" << std::setw(valueWidth) << cfg->frequencyR << L" , " << std::setw(valueWidth) << static_cast<int>(pData->freq_result[1]) << L"] Hz  ";
     SetDlgItemTextW(hDlg, IDC_INFO_FREQ, wss.str().c_str());
     wss.str(L"");
 
     // --- 第 3 行: THD+N [參數, 實際值] ---
-    wss << L"THD+N [Threshold, Actual]  L: [< " << cfg->thd_n << ", " << static_cast<int>(pData->thd_n_result[0]) << L"] dB"
-        << L"    R: [< " << cfg->thd_n << ", " << static_cast<int>(pData->thd_n_result[1]) << L"] dB";
+    wss << std::left << std::setw(labelWidth) << L"THD+N [Threshold, Actual]";
+    wss << L"L: [< " << std::setw(valueWidth - 1) << cfg->thd_n << L", " << std::setw(valueWidth) << static_cast<int>(pData->thd_n_result[0]) << L"] dB  ";
+    wss << L"    R: [< " << std::setw(valueWidth - 1) << cfg->thd_n << L", " << std::setw(valueWidth) << static_cast<int>(pData->thd_n_result[1]) << L"] dB  ";
     SetDlgItemTextW(hDlg, IDC_INFO_THDN, wss.str().c_str());
     wss.str(L"");
 
-    // --- 第 4 行: dB Max [參數, 實際值] ---
-    wss << L"Fundamental Level [Threshold, Actual]  L: [> " << cfg->FundamentalLevel_dBFS << ", " << static_cast<int>(pData->FundamentalLevel_dBFS_result[0]) << L"] dBFS"
-        << L"    R: [> " << cfg->FundamentalLevel_dBFS << ", " << static_cast<int>(pData->FundamentalLevel_dBFS_result[1]) << L"] dBFS";
+    // --- 第 4 行: Fundamental Level [參數, 實際值] ---
+    wss << std::left << std::setw(labelWidth) << L"Fundamental Level [Threshold, Actual]";
+    wss << L"L: [> " << std::setw(valueWidth - 1) << cfg->FundamentalLevel_dBFS << L", " << std::setw(valueWidth) << static_cast<int>(pData->FundamentalLevel_dBFS_result[0]) << L"] dBFS";
+    wss << L"    R: [> " << std::setw(valueWidth - 1) << cfg->FundamentalLevel_dBFS << L", " << std::setw(valueWidth) << static_cast<int>(pData->FundamentalLevel_dBFS_result[1]) << L"] dBFS";
     SetDlgItemTextW(hDlg, IDC_INFO_DB, wss.str().c_str());
     wss.str(L"");
-    // --- 第 4 行: SNR [參數, 實際值] ---
+
+    // --- 第 5 行: SNR [參數, 實際值] ---
     if (pData->snr_result) {
-        wss << L"SNR [Threshold, Actual]  L: [>" << cfg->snrThreshold << ", " << static_cast<int>(pData->snr_result[0]) << L"] dB"
-            << L"     R: [>" << cfg->snrThreshold << ", " << static_cast<int>(pData->snr_result[1]) << L"] dB";
+        wss << std::left << std::setw(labelWidth) << L"SNR [Threshold, Actual]";
+        wss << L"L: [>" << std::setw(valueWidth) << cfg->snrThreshold << L", " << std::setw(valueWidth) << static_cast<int>(pData->snr_result[0]) << L"] dB ";
+        wss << L"     R: [>" << std::setw(valueWidth) << cfg->snrThreshold << L", " << std::setw(valueWidth) << static_cast<int>(pData->snr_result[1]) << L"] dB ";
         SetDlgItemTextW(hDlg, IDC_INFO_SNR, wss.str().c_str());
         wss.str(L"");
     }
@@ -245,6 +258,7 @@ void DrawSpectrum(HDC hdc, const RECT& rc, double* spectrumData, int bufferSize)
 INT_PTR CALLBACK FailureDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_INITDIALOG: {
+
         g_pAudioData = (AudioData*)lParam;
         if (g_pAudioData && g_pAudioData->errorMessage) {
             SetWindowTextW(hDlg, L"測試失敗 (Test Failed)");
@@ -270,6 +284,73 @@ INT_PTR CALLBACK FailureDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARA
         g_scrollPosRight = 0;
         UpdateResultText(hDlg, g_pAudioData->config, g_pAudioData);
         return (INT_PTR)TRUE;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        HWND hwndStatic = (HWND)lParam; // 取得控制項的控制代碼
+        int ctrlId = GetDlgCtrlID(hwndStatic);
+
+        // --- 只處理我們指定的文字標籤 ---
+        if (ctrlId == IDC_INFO_DEVICES || ctrlId == IDC_INFO_FREQ ||
+            ctrlId == IDC_INFO_THDN || ctrlId == IDC_INFO_DB ||
+            ctrlId == IDC_INFO_SNR)
+        {
+            // 設定透明背景，這樣才不會蓋掉對話框本身的背景
+            SetBkMode(hdcStatic, TRANSPARENT);
+
+            // 預設顏色設為黑色
+            COLORREF textColor = RGB(0, 0, 0);
+
+            if (g_pAudioData && g_pAudioData->config) {
+                const Config* cfg = g_pAudioData->config;
+                const AudioData* pData = g_pAudioData;
+                bool pass = false;
+
+                switch (ctrlId) {
+                case IDC_INFO_FREQ:
+                    if (pData->freq_result[0] != NOT_TESTED_VALUE && pData->freq_result[1] != NOT_TESTED_VALUE)
+                    {
+                        pass = (static_cast<int>(pData->freq_result[0]) == cfg->frequencyL) &&
+                            (static_cast<int>(pData->freq_result[1]) == cfg->frequencyR);
+                        textColor = pass ? RGB(10, 100, 15) : RGB(200, 0, 0);
+                    }
+                    else
+                        textColor = RGB(128, 128, 128);
+                    break;
+                case IDC_INFO_THDN:
+                    if (pData->thd_n_result[0] != NOT_TESTED_VALUE && pData->thd_n_result[1] != NOT_TESTED_VALUE)
+                    {
+                        pass = (pData->thd_n_result[0] < cfg->thd_n) &&
+                            (pData->thd_n_result[1] < cfg->thd_n);
+                        textColor = pass ? RGB(10, 100, 15) : RGB(200, 0, 0);
+                    }
+                    else
+                        textColor = RGB(128, 128, 128);
+                    break;
+                case IDC_INFO_DB:
+                    if (pData->FundamentalLevel_dBFS_result[0] != NOT_TESTED_VALUE && pData->FundamentalLevel_dBFS_result[1] != NOT_TESTED_VALUE)
+                    {
+                        pass = (pData->FundamentalLevel_dBFS_result[0] > cfg->FundamentalLevel_dBFS) &&
+                            (pData->FundamentalLevel_dBFS_result[1] > cfg->FundamentalLevel_dBFS);
+                        textColor = pass ? RGB(10, 100, 15) : RGB(200, 0, 0);
+                    }
+                    else
+                        textColor = RGB(128, 128, 128);
+                    break;
+                case IDC_INFO_SNR:
+                    if (pData->snr_result[0] != NOT_TESTED_VALUE && pData->snr_result[1] != NOT_TESTED_VALUE) {
+                        pass = (pData->snr_result[0] > cfg->snrThreshold) &&
+                            (pData->snr_result[1] > cfg->snrThreshold);
+                        textColor = pass ? RGB(100, 255, 100) : RGB(200, 0, 0);
+                    }
+                    else
+						textColor = RGB(128, 128, 128);
+                    break;
+                }
+            }
+            SetTextColor(hdcStatic, textColor);
+            return (INT_PTR)GetStockObject(NULL_BRUSH);
+        }
     }
     case WM_COMMAND: {
         // --- 處理按鈕點擊 ---

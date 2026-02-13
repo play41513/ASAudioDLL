@@ -21,11 +21,13 @@ extern double thd_n[2];
 extern double FundamentalLevel_dBFS[2];
 extern double freq[2];
 extern double snr_result[2];
+const double NOT_TESTED_VALUE = -999.0;
 
 extern "C" int fft_thd_n_exe(short*, short*, double*, double*);
 extern "C" void fft_get_thd_n_db(double*, double*, double*);
 extern "C" int fft_mute_exe(bool, bool, short*, short*, double*, double*);
 extern "C" void fft_get_snr(double*);
+
 
 class ComInitializer {
 public:
@@ -67,6 +69,25 @@ bool AudioManager::ExecuteTestsFromConfig(const Config& config) {
         return false; // 如果 COM 初始化失敗，直接中止
     }
 
+    // 重置所有用於測試的資料緩衝區
+    memset(leftAudioData, 0, sizeof(leftAudioData));
+    memset(rightAudioData, 0, sizeof(rightAudioData));
+    memset(leftSpectrumData, 0, sizeof(leftSpectrumData));
+    memset(rightSpectrumData, 0, sizeof(rightSpectrumData));
+    memset(thd_n, 0, sizeof(thd_n));
+    memset(FundamentalLevel_dBFS, 0, sizeof(FundamentalLevel_dBFS));
+    memset(freq, 0, sizeof(freq));
+    memset(snr_result, 0, sizeof(snr_result));
+
+
+    thd_n[0] = NOT_TESTED_VALUE;
+    thd_n[1] = NOT_TESTED_VALUE;
+    FundamentalLevel_dBFS[0] = NOT_TESTED_VALUE;
+    FundamentalLevel_dBFS[1] = NOT_TESTED_VALUE;
+    freq[0] = NOT_TESTED_VALUE;
+    freq[1] = NOT_TESTED_VALUE;
+    snr_result[0] = NOT_TESTED_VALUE;
+    snr_result[1] = NOT_TESTED_VALUE;
     resultString.clear(); // 每次執行前都清除上一次的結果
 
     // 1. 檢查裝置是否存在
@@ -76,6 +97,7 @@ bool AudioManager::ExecuteTestsFromConfig(const Config& config) {
 
     // 2. 依序執行設定檔中啟用的各項測試
     if (config.AudioTestEnable) {
+
         if (!RunAudioTest(config)) return false;
     }
     if (config.snrTestEnable) {
@@ -139,15 +161,6 @@ bool AudioManager::CheckAudioDevices(const Config& config) {
 }
 
 bool AudioManager::RunAudioTest(const Config& config) {
-    // 重置所有用於測試的資料緩衝區
-    memset(leftAudioData, 0, sizeof(leftAudioData));
-    memset(rightAudioData, 0, sizeof(rightAudioData));
-    memset(leftSpectrumData, 0, sizeof(leftSpectrumData));
-    memset(rightSpectrumData, 0, sizeof(rightSpectrumData));
-    memset(thd_n, 0, sizeof(thd_n));
-    memset(FundamentalLevel_dBFS, 0, sizeof(FundamentalLevel_dBFS));
-    memset(freq, 0, sizeof(freq));
-
     // 呼叫 C-API 執行核心 FFT 測試
     fft_thd_n_exe(leftAudioData, rightAudioData, leftSpectrumData, rightSpectrumData);
     fft_get_thd_n_db(thd_n, FundamentalLevel_dBFS, freq);
@@ -231,6 +244,14 @@ bool AudioManager::RunSwitchDefaultDevice(const Config& config) {
         if (!audio.SetDefaultAudioPlaybackDevice(deviceId)) {
             resultString = "LOG:ERROR_AUDIO_CHANGE_DEFAULT_DEVICE#";
             return false;
+        }
+        if (nonConstConfig.setListen == 1) {
+            // 執行勾選「聆聽」
+            audio.SetListenToThisDevice(deviceId, 1);
+        }
+        else if (nonConstConfig.setListen == 0) {
+            // 如果明確設定為 0，則取消勾選
+            audio.SetListenToThisDevice(deviceId, 0);
         }
     }
     else {

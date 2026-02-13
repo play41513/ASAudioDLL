@@ -100,5 +100,7 @@ bool ConfigManager::ReadConfig(const std::string& filePath, Config& config)
     iNumber = GetPrivateProfileIntA("SwitchDefaultAudio", "AudioIndex", 0, filePath.c_str());
     config.AudioIndex = iNumber;
 
+    config.setListen = GetPrivateProfileIntA("SwitchDefaultAudio", "SetListen", -1, filePath.c_str());
+
     return true;
 }
