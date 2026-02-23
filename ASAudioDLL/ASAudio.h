@@ -147,7 +147,7 @@ public:
     void StopAudioLoopback();
     bool SetDefaultAudioPlaybackDevice(const std::wstring& deviceId);
     bool SetListenToThisDevice(const std::wstring& deviceId, int enable);
-    bool FindDeviceIdByName(struct Config& config, std::wstring& outDeviceId);
+    bool FindDeviceIdByName(struct Config& config, std::wstring& outDeviceId, EDataFlow dataFlow = eRender);
     std::wstring charToWstring(const char* szIn);
     void SpectrumAnalysis(double* leftSpectrumData, double* rightSpectrumData);
     void GetSpectrumData(fftw_complex*& leftSpectrum, fftw_complex*& rightSpectrum);

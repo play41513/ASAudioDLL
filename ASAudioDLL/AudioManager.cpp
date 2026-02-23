@@ -121,6 +121,9 @@ bool AudioManager::ExecuteTestsFromConfig(const Config& config) {
     if (config.SwitchDefaultAudioEnable) {
         if (!RunSwitchDefaultDevice(config)) return false;
     }
+	if (config.SetListenToThisDeviceEnable) {
+        if (!RunSetListenToThisDevice(config)) return false;
+	}
 
     // 如果所有流程都跑完了，而且 resultString 還是空的，
     // 表示所有功能都被 disable，給一個預設的成功訊息。
@@ -237,25 +240,35 @@ bool AudioManager::RunSwitchDefaultDevice(const Config& config) {
     ASAudio& audio = ASAudio::GetInstance();
     std::wstring deviceId;
 
-    // 建立一個可修改的 config 副本，因為 FindDeviceIdByName 可能會修改它
     Config nonConstConfig = config;
 
-    if (audio.FindDeviceIdByName(nonConstConfig, deviceId)) {
+    if (audio.FindDeviceIdByName(nonConstConfig, deviceId, eRender)) {
         if (!audio.SetDefaultAudioPlaybackDevice(deviceId)) {
             resultString = "LOG:ERROR_AUDIO_CHANGE_DEFAULT_DEVICE#";
             return false;
         }
-        if (nonConstConfig.setListen == 1) {
-            // 執行勾選「聆聽」
-            audio.SetListenToThisDevice(deviceId, 1);
-        }
-        else if (nonConstConfig.setListen == 0) {
-            // 如果明確設定為 0，則取消勾選
-            audio.SetListenToThisDevice(deviceId, 0);
-        }
     }
     else {
         resultString = audio.GetLastResult();
+        return false;
+    }
+    return true;
+}
+bool AudioManager::RunSetListenToThisDevice(const Config& config) {
+    ASAudio& audio = ASAudio::GetInstance();
+    std::wstring deviceId;
+
+    Config tempConfig = config;
+    tempConfig.AudioName = config.AudioName;
+
+    if (audio.FindDeviceIdByName(tempConfig, deviceId, eCapture)) {
+        if (!audio.SetListenToThisDevice(deviceId, config.setListen)) {
+            resultString = "LOG:ERROR_AUDIO_SET_LISTEN_FAILED#";
+            return false;
+        }
+    }
+    else {
+        resultString = audio.GetLastResult(); // 獲取如「找不到裝置」的錯誤
         return false;
     }
     return true;

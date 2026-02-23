@@ -69,14 +69,18 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 			finalResult = audioManager.GetResultString(); // 總是獲取結果，無論成功或失敗
 		}
 
+		// --- 修改後的錯誤處理與 UI 顯示邏輯 ---
+
+		// 1. 判斷是否包含錯誤字串
 		bool hasError = (finalResult.find("ERROR") != std::string::npos);
-		if (hasError && ownerHwnd != NULL) {
-			/*
-			std::string strTemp = "Failed: " + finalResult;
-			std::wstring wErrorMsg = audioInstance.charToWstring(strTemp.c_str()) + L"\n\n" + audioInstance.GetLog() + L"\n\n是否要重測？(Retry ?)";
-			if (MessageBoxW(ownerHwnd, wErrorMsg.c_str(), L"測試失敗", MB_YESNO | MB_ICONERROR) == IDYES) {
-				shouldRetry = true;
-			}*/
+
+		// 2. 定義哪些功能屬於「品質測試」(需要顯示圖表 UI)
+		// 只有 AudioTest 或 SNRTest 啟動時發生的錯誤才需要彈出失敗視窗
+		bool isQualityTest = (configs.AudioTestEnable || configs.snrTestEnable);
+
+		// 3. 只有在「是品質測試」且「有錯誤」且「有視窗句柄」時才顯示 Dialog
+		if (hasError && ownerHwnd != NULL && isQualityTest) {
+
 			std::string strTemp = "失敗 (Failed): " + finalResult;
 			std::wstring wErrorMsg = audioInstance.charToWstring(strTemp.c_str()) + L"\n" + audioInstance.GetLog();
 
@@ -96,18 +100,17 @@ extern "C" __declspec(dllexport) BSTR MacroTest(HWND ownerHwnd, const char* file
 			data.leftSpectrumData = leftSpectrumData;
 			data.rightSpectrumData = rightSpectrumData;
 
-			// <<< 新增：填充 SNR 的圖表資料 >>>
+			// 填充 SNR 的圖表資料
 			data.leftAudioData_SNR = leftAudioData_SNR;
 			data.rightAudioData_SNR = rightAudioData_SNR;
 			data.leftSpectrumData_SNR = leftSpectrumData_SNR;
 			data.rightSpectrumData_SNR = rightSpectrumData_SNR;
 
-			// <<< 從 audioInstance 獲取並填充實際裝置名稱 >>>
+			// 從 audioInstance 獲取並填充實際裝置名稱
 			data.actualOutDeviceName = audioInstance.GetWaveParm().ActualWaveOutDev;
 			data.actualInDeviceName = audioInstance.GetWaveParm().ActualWaveInDev;
 
-
-			// 呼叫 ShowFailureDialog，現在它擁有了兩組資料
+			// 呼叫 ShowFailureDialog
 			if (ShowFailureDialog(g_hInst, ownerHwnd, &data)) {
 				shouldRetry = true;
 			}

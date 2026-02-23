@@ -95,12 +95,15 @@ bool ConfigManager::ReadConfig(const std::string& filePath, Config& config)
 
         config.monitorNames.push_back(charToWstring(buffer));
     }
-    GetPrivateProfileStringA("SwitchDefaultAudio", "AudioName", "", buffer, sizeof(buffer), filePath.c_str());
-    config.AudioName = buffer;
     iNumber = GetPrivateProfileIntA("SwitchDefaultAudio", "AudioIndex", 0, filePath.c_str());
     config.AudioIndex = iNumber;
 
-    config.setListen = GetPrivateProfileIntA("SwitchDefaultAudio", "SetListen", -1, filePath.c_str());
+
+    iNumber = GetPrivateProfileIntA("SetListenToThisDevice", "SetListenToThisDeviceEnable", 0, filePath.c_str());
+    config.SetListenToThisDeviceEnable = iNumber == 1 ? true : false;
+    GetPrivateProfileStringA("SetListenToThisDevice", "AudioName", "", buffer, sizeof(buffer), filePath.c_str());
+    config.AudioName = buffer;
+    config.setListen = GetPrivateProfileIntA("SetListenToThisDevice", "SetListen", -1, filePath.c_str());
 
     return true;
 }

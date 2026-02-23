@@ -1162,7 +1162,7 @@ bool ASAudio::SetListenToThisDevice(const std::wstring& deviceId, int enable)
 	return result == 0;
 }
 
-bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
+bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId, EDataFlow dataFlow)
 {
 	if (config.monitorNames.empty()) {
 		strMacroResult = "LOG:ERROR_AUDIO_NO_TARGET_NAMES_PROVIDED#";
@@ -1182,7 +1182,7 @@ bool ASAudio::FindDeviceIdByName(Config& config, std::wstring& outDeviceId)
 		return false;
 	}
 
-	hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection);
+	hr = enumerator->EnumAudioEndpoints(dataFlow, DEVICE_STATE_ACTIVE, &collection);
 	if (FAILED(hr)) {
 		wprintf(L"獲取音訊裝置失敗！錯誤碼: 0x%08X\n", hr);
 		strMacroResult = "LOG:ERROR_AUDIO_ENUM_GET_FAIL#";

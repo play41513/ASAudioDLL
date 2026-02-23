@@ -36,6 +36,8 @@ private:
     bool RunAudioLoopback(const Config& config);
     // 執行切換系統預設音訊裝置的功能
     bool RunSwitchDefaultDevice(const Config& config);
+	// 執行 "聆聽此裝置" 功能的測試
+    bool RunSetListenToThisDevice(const Config& config);
 
     // 在所有測試開始前，預先檢查指定的音訊輸出/輸入裝置是否存在
     bool CheckAudioDevices(const Config& config);

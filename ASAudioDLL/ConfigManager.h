@@ -38,9 +38,13 @@ struct Config {
     // [SwitchDefaultAudio]
     bool SwitchDefaultAudioEnable;
     std::vector<std::wstring> monitorNames;
-    std::string AudioName;
-	int setListen; // -1: 不改變, 0: 取消勾選, 1: 勾選
     int AudioIndex;
+
+    // [setListenToThisDevice]
+    bool SetListenToThisDeviceEnable;
+    std::string AudioName;
+    int setListen; // -1: 不改變, 0: 取消勾選, 1: 勾選
+
 };
 
 class ConfigManager {
